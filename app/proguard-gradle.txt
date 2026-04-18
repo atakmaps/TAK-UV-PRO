@@ -1,0 +1,77 @@
+################################################################################
+## Skip down to the 'User Section'
+## Messing with any items in the 'System Section' will void the warranty
+################################################################################
+
+
+################################################################################
+################################################################################
+## System Section
+################################################################################
+################################################################################
+
+
+-dontskipnonpubliclibraryclasses
+-dontshrink
+-dontoptimize
+
+############### ACRA specifics
+# we need line numbers in our stack traces otherwise they are pretty useless
+-renamesourcefileattribute SourceFile
+-keepattributes SourceFile,LineNumberTable
+
+-applymapping <atak.proguard.mapping>
+
+-keepattributes *Annotation*
+-keepattributes Signature, InnerClasses
+
+
+-keep class * implements android.os.Parcelable {
+  public static final android.os.Parcelable$Creator *;
+}
+
+-keepclassmembers class **.R$* {
+    public static <fields>;
+}
+
+-keepclassmembers enum * {
+    public static **[] values();
+    public static ** valueOf(java.lang.String);
+}
+
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+
+-keepclassmembers class * {
+    @org.simpleframework.xml.* *;
+}
+
+-keep class * extends transapps.maps.plugin.tool.Tool {
+}
+-keep class * implements transapps.maps.plugin.lifecycle.Lifecycle {
+}
+
+# overcome an existing bug in the gradle subsystem (3.5.x)
+-keep class module-info
+
+################################################################################
+## Messing with any settings above this line will void the Warranty
+################################################################################
+
+
+
+################################################################################
+################################################################################
+## User Section
+################################################################################
+################################################################################
+
+-repackageclasses atakplugin.BtechRelay
+
+################################################################################
+## Rules specific to BtechRelay plugin
+################################################################################
+
+-keep class com.btechrelay.plugin.** { *; }
+-dontwarn android.bluetooth.**

@@ -1,0 +1,36 @@
+# Gradle
+.gradle/
+build/
+local.properties
+gradle.properties
+
+# Android Studio / IDE
+.idea/
+*.iml
+.vscode/
+
+# ATAK SDK (downloaded separately — see README)
+app/libs/atak-civ/
+ATAK-CIV-*/
+*.zip
+
+# Signing
+*.keystore
+
+# Build outputs
+app/build/
+*.class
+*.dex
+*.apk
+*.ap_
+
+# Debug / scratch
+build_output.txt
+jar_list.txt
+
+# OS files
+Thumbs.db
+.DS_Store
+*.swp
+*.swo
+*~

@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <PreferenceCategory
+        android:key="btechrelay_cat_radio"
+        android:title="Radio Settings">
+
+        <com.atakmap.android.gui.PanEditTextPreference
+            android:key="btechrelay_callsign"
+            android:title="Callsign"
+            android:summary="Your radio callsign (max 6 chars)"
+            android:defaultValue="OPENRL"
+            android:dialogTitle="Enter Callsign"
+            android:maxLength="6" />
+
+        <com.atakmap.android.gui.PanListPreference
+            android:key="btechrelay_beacon_interval"
+            android:title="GPS Beacon Interval"
+            android:summary="How often to broadcast position"
+            android:defaultValue="60"
+            android:dialogTitle="Beacon Interval"
+            android:entries="@array/beacon_interval_labels"
+            android:entryValues="@array/beacon_interval_values" />
+
+        <com.atakmap.android.gui.PanListPreference
+            android:key="btechrelay_team_color"
+            android:title="Team Color"
+            android:summary="Team color for radio contacts on map"
+            android:defaultValue="Cyan"
+            android:dialogTitle="Team Color"
+            android:entries="@array/team_color_entries"
+            android:entryValues="@array/team_color_entries" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:key="btechrelay_cat_security"
+        android:title="Security">
+
+        <com.atakmap.android.gui.PanCheckBoxPreference
+            android:key="btechrelay_encryption_enabled"
+            android:title="Enable Encryption"
+            android:summary="Encrypt all data sent over radio"
+            android:defaultValue="false" />
+
+        <com.atakmap.android.gui.PanEditTextPreference
+            android:key="btechrelay_encryption_passphrase"
+            android:title="Encryption Passphrase"
+            android:summary="Shared passphrase — all radios must use the same one"
+            android:defaultValue=""
+            android:dialogTitle="Enter Encryption Passphrase"
+            android:inputType="textPassword" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:key="btechrelay_cat_relay"
+        android:title="Relay Settings">
+
+        <com.atakmap.android.gui.PanCheckBoxPreference
+            android:key="btechrelay_relay_chat"
+            android:title="Relay Chat Messages"
+            android:summary="Bridge ATAK GeoChat with radio"
+            android:defaultValue="true" />
+
+        <com.atakmap.android.gui.PanCheckBoxPreference
+            android:key="btechrelay_relay_cot"
+            android:title="Relay CoT Events"
+            android:summary="Forward SA events over radio (uses bandwidth)"
+            android:defaultValue="false" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:key="btechrelay_cat_bluetooth"
+        android:title="Bluetooth">
+
+        <com.atakmap.android.gui.PanCheckBoxPreference
+            android:key="btechrelay_auto_reconnect"
+            android:title="Auto-Reconnect"
+            android:summary="Automatically reconnect to last known radio"
+            android:defaultValue="true" />
+
+    </PreferenceCategory>
+
+</PreferenceScreen>

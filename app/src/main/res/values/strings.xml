@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">BTECH Relay</string>
+    <string name="plugin_name">BTECH Relay</string>
+    <string name="plugin_description">BTECH Radio Bridge for ATAK - Off-grid position sharing, chat, and voice.</string>
+
+    <!-- Connection UI -->
+    <string name="btn_scan">Scan for Radios</string>
+    <string name="btn_connect">Connect</string>
+    <string name="btn_disconnect">Disconnect</string>
+    <string name="status_disconnected">Disconnected</string>
+    <string name="status_connecting">Connecting…</string>
+    <string name="status_connected">Connected</string>
+    <string name="status_error">Connection Error</string>
+
+    <!-- Settings -->
+    <string name="pref_category_radio">Radio Connection</string>
+    <string name="pref_beacon_interval_title">GPS Beacon Interval</string>
+    <string name="pref_beacon_interval_summary">How often to transmit your position (seconds)</string>
+    <string name="pref_auto_reconnect_title">Auto Reconnect</string>
+    <string name="pref_auto_reconnect_summary">Automatically reconnect to radio if connection drops</string>
+    <string name="pref_callsign_title">Radio Callsign</string>
+    <string name="pref_callsign_summary">Your callsign for APRS/radio identification (e.g., KD8DVR-5)</string>
+    <string name="pref_stale_timeout_title">Contact Stale Timeout</string>
+    <string name="pref_stale_timeout_summary">Seconds before a radio contact is marked stale</string>
+
+    <string name="pref_category_sync">Sync Options</string>
+    <string name="pref_sync_positions_title">Sync Positions</string>
+    <string name="pref_sync_chat_title">Sync Chat Messages</string>
+    <string name="pref_sync_markers_title">Sync CoT Markers</string>
+
+    <string name="pref_category_voice">Voice PTT</string>
+    <string name="pref_vox_enable_title">Enable VOX</string>
+    <string name="pref_vox_sensitivity_title">VOX Sensitivity</string>
+
+    <!-- PTT -->
+    <string name="btn_ptt">PUSH TO TALK</string>
+    <string name="ptt_press_to_talk">Press to Talk</string>
+    <string name="ptt_transmitting">Transmitting…</string>
+</resources>

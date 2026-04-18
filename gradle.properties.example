@@ -1,0 +1,10 @@
+# Gradle properties for BTECH Relay ATAK Plugin
+# Copy this file to gradle.properties and update the JDK path for your system.
+
+org.gradle.jvmargs=-Xmx2048m
+android.useAndroidX=true
+
+# JDK 17 is required by Android Gradle Plugin 8.x.
+# Update this path to match your JDK 17 installation, or remove this line
+# if JAVA_HOME already points to JDK 17.
+org.gradle.java.home=C:\\Program Files\\Eclipse Adoptium\\jdk-17.0.18.8-hotspot
