@@ -53,7 +53,7 @@ The plugin talks to the radio over Bluetooth SPP using the KISS TNC protocol. Da
 ### To Build from Source
 - **JDK 17** — [Eclipse Temurin](https://adoptium.net/) recommended. Other JDK 17 distributions work too.
 - **Android SDK** with API level 35 — install via [Android Studio](https://developer.android.com/studio) or the [command-line tools](https://developer.android.com/studio#command-line-tools-only)
-- **ATAK-CIV 5.5.1 SDK** — free download from [TAK Product Center](https://tak.gov) (requires free registration)
+- **ATAK-CIV 5.5.1 SDK** — available from the [atak-civ GitHub repo](https://github.com/TAK-Product-Center/atak-civ)
 - **Git** — to clone the repo
 
 > **Note:** You do _not_ need to install Gradle. The included Gradle wrapper (`gradlew` / `gradlew.bat`) downloads the correct version automatically.
@@ -71,7 +71,7 @@ If you just want to install the plugin without building it:
 
 ### 1. Download the ATAK-CIV SDK
 
-Go to [TAK Product Center](https://tak.gov) (free registration), download **ATAK-CIV 5.5.1 SDK**, and extract these files into `app/libs/atak-civ/`:
+Go to the [atak-civ GitHub repo](https://github.com/TAK-Product-Center/atak-civ), download the **ATAK-CIV 5.5.1 SDK**, and extract these files into `app/libs/atak-civ/`:
 
 ```
 app/libs/atak-civ/
