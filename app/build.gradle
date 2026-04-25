@@ -5,6 +5,21 @@ android {
     compileSdk 35
     namespace 'com.btechrelay.plugin'
 
+    // Local dev speed-up: only build civDebug.
+    // Disable mil + release variants so the ATAK Gradle plugin does not waste time resolving them.
+    // Optional dev-only speed optimization:
+    // Run with: ./gradlew assembleCivDebug -PlocalDev=true
+    if (project.hasProperty("localDev")) {
+        androidComponents {
+            beforeVariants(selector().all()) { variantBuilder ->
+                def flavor = variantBuilder.productFlavors.find { it.first == "application" }?.second
+                if (!(flavor == "civ" && variantBuilder.buildType == "debug")) {
+                    variantBuilder.enable = false
+                }
+            }
+        }
+    }
+
     buildFeatures {
         buildConfig = true
     }
