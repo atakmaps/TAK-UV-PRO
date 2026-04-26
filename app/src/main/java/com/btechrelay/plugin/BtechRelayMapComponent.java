@@ -60,7 +60,15 @@ public class BtechRelayMapComponent extends DropDownMapComponent {
         Log.i(TAG, "BTECH Relay plugin initializing...");
 
         // Read user preferences
-        String callsign = SettingsFragment.getCallsign(context);
+        String callsign = "UNKNOWN";
+try {
+    com.atakmap.android.maps.PointMapItem self = view.getSelfMarker();
+    if (self != null) {
+        callsign = self.getMetaString("callsign", "UNKNOWN");
+    }
+} catch (Exception e) {
+    android.util.Log.e("BTRelay", "Failed to get ATAK callsign", e);
+}
 
         // Initialize sub-systems in dependency order:
         // 1. CotBridge (needs plugin context + MapView)

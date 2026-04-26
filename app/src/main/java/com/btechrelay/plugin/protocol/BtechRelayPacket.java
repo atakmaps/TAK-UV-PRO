@@ -85,7 +85,7 @@ public class BtechRelayPacket {
      *   Flags (1 byte)
      *   Battery (1 byte, percentage)
      */
-    public static BtechRelayPacket createGpsPacket(String callsign,
+    public static BtechRelayPacket createGpsPacket(String callsign, String fullCallsign,
                                                    double lat, double lon,
                                                    double alt, double speed,
                                                    double course, int battery) {
@@ -118,7 +118,17 @@ public class BtechRelayPacket {
         // Battery
         buf.put((byte) Math.max(0, Math.min(100, battery)));
 
-        return new BtechRelayPacket(TYPE_GPS, buf.array());
+        byte[] base = buf.array();
+
+// Append full callsign (UTF-8)
+byte[] full = fullCallsign.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+byte[] out = new byte[base.length + 1 + full.length];
+
+System.arraycopy(base, 0, out, 0, base.length);
+out[base.length] = (byte)'|';
+System.arraycopy(full, 0, out, base.length + 1, full.length);
+
+return new BtechRelayPacket(TYPE_GPS, out);
     }
 
     /**
@@ -144,6 +154,18 @@ public class BtechRelayPacket {
         gps.course = (buf.getShort() & 0xFFFF) / 100.0;
         gps.flags = buf.get();
         gps.battery = buf.get() & 0xFF;
+
+// Check for extended payload (full callsign)
+if (payload.length > 22) {
+    try {
+        String extra = new String(payload, 22, payload.length - 22,
+            java.nio.charset.StandardCharsets.UTF_8);
+
+        if (extra.startsWith("|")) {
+            gps.callsign = extra.substring(1).trim();
+        }
+    } catch (Exception ignored) {}
+}
 
         return gps;
     }

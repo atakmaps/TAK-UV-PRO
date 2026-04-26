@@ -190,7 +190,7 @@ public class CotBridge {
 
         try {
             BtechRelayPacket packet = BtechRelayPacket.createGpsPacket(
-                    com.btechrelay.plugin.util.CallsignUtil.toRadioCallsign(localCallsign), lat, lon, (float) alt,
+                    com.btechrelay.plugin.util.CallsignUtil.toRadioCallsign(localCallsign), localCallsign, lat, lon, (float) alt,
                     speed, course, battery);
 
             byte[] packetBytes = packet.encode();

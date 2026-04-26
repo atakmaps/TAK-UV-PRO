@@ -132,7 +132,7 @@ public class PacketRouter {
                 com.atakmap.android.contact.Contacts contacts =
                         com.atakmap.android.contact.Contacts.getInstance();
 
-                String normalized = callsign.trim().toUpperCase();
+                String normalized = gps.callsign.trim().toUpperCase();
                 String uid = "ANDROID-" + normalized;
 
                 com.atakmap.android.contact.IndividualContact c =
