@@ -20,7 +20,6 @@ import com.btechrelay.plugin.chat.ChatBridge;
 import com.btechrelay.plugin.crypto.EncryptionManager;
 import com.btechrelay.plugin.protocol.PacketRouter;
 import com.btechrelay.plugin.ui.SettingsFragment;
-import com.btechrelay.plugin.voice.PttController;
 
 /**
  * BtechRelay Map Component — the central nervous system of the plugin.
@@ -48,7 +47,6 @@ public class BtechRelayMapComponent extends DropDownMapComponent {
     private ChatBridge chatBridge;
     private ContactTracker contactTracker;
     private BtechRelayDropDownReceiver dropDownReceiver;
-    private PttController pttController;
     private EncryptionManager encryptionManager;
     private Handler beaconHandler;
     private Runnable beaconRunnable;
@@ -105,9 +103,6 @@ public class BtechRelayMapComponent extends DropDownMapComponent {
         dropDownReceiver.setChatBridge(chatBridge);
         dropDownReceiver.setEncryptionManager(encryptionManager);
 
-        // 7. PttController (wire to dropdown)
-        pttController = new PttController(view.getContext());
-        dropDownReceiver.setPttController(pttController);
 
         // Wire PacketRouter RX count to dropdown UI
         packetRouter.setPacketCountListener(dropDownReceiver);
@@ -159,10 +154,6 @@ public class BtechRelayMapComponent extends DropDownMapComponent {
         ToolsPreferenceFragment.unregister("btechRelayPreference");
 
         // Shutdown in reverse order
-        if (pttController != null) {
-            pttController.dispose();
-            pttController = null;
-        }
         if (btConnectionManager != null) {
             btConnectionManager.disconnect();
             btConnectionManager = null;

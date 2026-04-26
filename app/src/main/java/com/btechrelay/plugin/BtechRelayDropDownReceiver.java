@@ -30,7 +30,6 @@ import com.btechrelay.plugin.cot.CotBridge;
 import com.btechrelay.plugin.crypto.EncryptionManager;
 import com.btechrelay.plugin.protocol.PacketRouter;
 import com.btechrelay.plugin.ui.SettingsFragment;
-import com.btechrelay.plugin.voice.PttController;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -45,7 +44,6 @@ import java.util.Locale;
  * Slides in from the right side of the ATAK map. Provides:
  * - Radio connection status and controls
  * - Contact count and statistics
- * - PTT voice button
  * - Quick-action buttons (beacon, ping, settings)
  * - Debug log view
  */
@@ -66,7 +64,6 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
     private final ContactTracker contactTracker;
     private CotBridge cotBridge;
     private ChatBridge chatBridge;
-    private PttController pttController;
     private EncryptionManager encryptionManager;
 
     private View rootView;
@@ -118,9 +115,6 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
         this.chatBridge = chatBridge;
     }
 
-    public void setPttController(PttController pttController) {
-        this.pttController = pttController;
-    }
 
     public void setEncryptionManager(EncryptionManager encryptionManager) {
         this.encryptionManager = encryptionManager;
