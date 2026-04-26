@@ -141,6 +141,18 @@ public class PacketRouter {
                                 uid
                         );
 
+// === ADD CONNECTOR (THIS MAKES IT SENDABLE) ===
+c.addConnector(new com.atakmap.android.contact.PluginConnector("BTECH_RELAY"));
+                c.addConnector(new com.atakmap.android.contact.IpConnector("BTECH_RELAY://" + uid));
+
+// Optional: set as default connector
+com.atakmap.android.preference.AtakPreferences prefs =
+        new com.atakmap.android.preference.AtakPreferences(
+                com.atakmap.android.maps.MapView.getMapView().getContext());
+
+prefs.set("contact.connector.default." + c.getUID(),
+        com.atakmap.android.contact.PluginConnector.CONNECTOR_TYPE);
+
                 contacts.addContact(c);
 
             } catch (Exception e) {

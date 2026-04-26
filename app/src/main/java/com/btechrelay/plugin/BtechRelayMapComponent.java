@@ -92,6 +92,21 @@ try {
         // 3. ContactTracker (needs CotBridge for injecting CoT events)
         contactTracker = new ContactTracker(cotBridge);
 
+        // === REGISTER CONTACT HANDLER ===
+        try {
+            com.atakmap.android.contact.ContactConnectorManager mgr =
+                    com.atakmap.android.cot.CotMapComponent.getInstance()
+                            .getContactConnectorMgr();
+
+            mgr.addContactHandler(
+                    new com.btechrelay.plugin.BtechRelayContactHandler(context)
+            );
+
+        } catch (Exception e) {
+            android.util.Log.e("BTRelay", "Handler registration failed", e);
+        }
+
+
         // 4. PacketRouter (needs CotBridge, ChatBridge, ContactTracker)
         packetRouter = new PacketRouter(cotBridge, chatBridge, contactTracker);
         packetRouter.setEncryptionManager(encryptionManager);
