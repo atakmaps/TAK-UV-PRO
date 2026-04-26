@@ -126,7 +126,28 @@ public class PacketRouter {
                     contactTracker.updateContact(gps.callsign, gps.latitude,
                             gps.longitude, gps.altitude, gps.speed,
                             gps.course, gps.battery);
-                    cotBridge.injectPositionCot(gps.callsign, gps.latitude,
+                    
+            // === ATAK CONTACT REGISTRATION (CRITICAL FIX) ===
+            try {
+                com.atakmap.android.contact.Contacts contacts =
+                        com.atakmap.android.contact.Contacts.getInstance();
+
+                String normalized = callsign.trim().toUpperCase();
+                String uid = "ANDROID-" + normalized;
+
+                com.atakmap.android.contact.IndividualContact c =
+                        new com.atakmap.android.contact.IndividualContact(
+                                normalized,
+                                uid
+                        );
+
+                contacts.addContact(c);
+
+            } catch (Exception e) {
+                android.util.Log.e("BTRelay.CONTACT", "Contact add failed", e);
+            }
+
+            cotBridge.injectPositionCot(gps.callsign, gps.latitude,
                             gps.longitude, gps.altitude, gps.speed,
                             gps.course);
                 }

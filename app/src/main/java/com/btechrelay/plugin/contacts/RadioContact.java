@@ -60,7 +60,7 @@ public class RadioContact {
 
     public RadioContact(String callsign) {
         this.callsign = callsign.trim().toUpperCase();
-        this.uid = "BtechRelay-" + this.callsign;
+        this.uid = "ANDROID-" + this.callsign;
         this.altitude = -1;
         this.speed = -1;
         this.course = -1;

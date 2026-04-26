@@ -122,7 +122,7 @@ public class CotBridge {
     public void injectChatCot(String senderCallsign, String message,
                               String chatRoom) {
         try {
-            String senderUid = "BtechRelay-" + senderCallsign.trim()
+            String senderUid = "ANDROID-" + senderCallsign.trim().toUpperCase()
                     .toUpperCase();
             CotEvent event = CotBuilder.buildChatCot(
                     senderUid, senderCallsign, message, chatRoom);
@@ -190,7 +190,7 @@ public class CotBridge {
 
         try {
             BtechRelayPacket packet = BtechRelayPacket.createGpsPacket(
-                    localCallsign, lat, lon, (float) alt,
+                    com.btechrelay.plugin.util.CallsignUtil.toRadioCallsign(localCallsign), lat, lon, (float) alt,
                     speed, course, battery);
 
             byte[] packetBytes = packet.encode();
@@ -267,7 +267,7 @@ public class CotBridge {
 
             // Don't relay our own injected radio events (avoid loops)
             String uid = event.getUID();
-            if (uid != null && uid.startsWith("BtechRelay-")) return;
+            if (uid != null && uid.startsWith("ANDROID-")) return;
 
             lastSaRelay = now;
             Log.d(TAG, "Relaying outgoing CoT to radio: " + type

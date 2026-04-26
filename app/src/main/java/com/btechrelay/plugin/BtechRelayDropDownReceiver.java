@@ -667,7 +667,7 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
             try {
                 com.btechrelay.plugin.protocol.BtechRelayPacket packet =
                         com.btechrelay.plugin.protocol.BtechRelayPacket
-                                .createPingPacket(callsign);
+                                .createPingPacket(com.btechrelay.plugin.util.CallsignUtil.toRadioCallsign(callsign));
                 byte[] packetBytes = packet.encode();
                 if (encryptionManager != null && encryptionManager.isEnabled()) {
                     packetBytes = encryptionManager.encrypt(packetBytes);

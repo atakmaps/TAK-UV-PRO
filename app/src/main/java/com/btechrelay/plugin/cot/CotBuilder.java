@@ -73,7 +73,8 @@ public class CotBuilder {
                                             double course, String teamColor) {
         CotEvent event = new CotEvent();
 
-        String uid = "BtechRelay-" + callsign.trim().toUpperCase();
+        String normalizedCall = callsign.trim().toUpperCase();
+        String uid = "ANDROID-" + normalizedCall;
         event.setUID(uid);
         event.setType("a-f-G-U-C"); // friendly ground unit combat
         event.setHow("m-g");          // machine GPS
@@ -96,7 +97,7 @@ public class CotBuilder {
 
         // Contact element
         CotDetail contact = new CotDetail("contact");
-        contact.setAttribute("callsign", callsign.trim());
+        contact.setAttribute("callsign", normalizedCall);
         detail.addChild(contact);
 
         // Group element — use configured team color

@@ -190,7 +190,7 @@ public class ChatBridge {
 
         try {
             BtechRelayPacket packet = BtechRelayPacket.createChatPacket(
-                    sender, room, message);
+                    com.btechrelay.plugin.util.CallsignUtil.toRadioCallsign(sender), room, message);
 
             byte[] packetBytes = packet.encode();
             // Encrypt if enabled
