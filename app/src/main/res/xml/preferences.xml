@@ -47,24 +47,6 @@
     </PreferenceCategory>
 
     <PreferenceCategory
-        android:key="btechrelay_cat_relay"
-        android:title="Relay Settings">
-
-        <com.atakmap.android.gui.PanCheckBoxPreference
-            android:key="btechrelay_relay_chat"
-            android:title="Relay Chat Messages"
-            android:summary="Bridge ATAK GeoChat with radio"
-            android:defaultValue="true" />
-
-        <com.atakmap.android.gui.PanCheckBoxPreference
-            android:key="btechrelay_relay_cot"
-            android:title="Relay CoT Events"
-            android:summary="Forward SA events over radio (uses bandwidth)"
-            android:defaultValue="false" />
-
-    </PreferenceCategory>
-
-    <PreferenceCategory
         android:key="btechrelay_cat_bluetooth"
         android:title="Bluetooth">
 

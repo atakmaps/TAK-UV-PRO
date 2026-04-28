@@ -36,6 +36,8 @@ public class BtechRelayMapComponent extends DropDownMapComponent {
 
     private static final String TAG = "BtechRelay";
     public static final String PLUGIN_PACKAGE = "com.btechrelay.plugin";
+    public static final String ACTION_BEACON_INTERVAL_CHANGED =
+            "com.btechrelay.plugin.BEACON_INTERVAL_CHANGED";
 
     private Context pluginContext;
     private MapView mapView;
@@ -50,6 +52,7 @@ public class BtechRelayMapComponent extends DropDownMapComponent {
     private EncryptionManager encryptionManager;
     private Handler beaconHandler;
     private Runnable beaconRunnable;
+    private android.content.BroadcastReceiver beaconIntervalReceiver;
 
     @Override
     public void onCreate(Context context, Intent intent, MapView view) {
@@ -123,7 +126,6 @@ try {
         dropDownReceiver = new BtechRelayDropDownReceiver(
                 view, pluginContext, btConnectionManager, contactTracker);
         dropDownReceiver.setCotBridge(cotBridge);
-        dropDownReceiver.setChatBridge(chatBridge);
         dropDownReceiver.setEncryptionManager(encryptionManager);
 
 
@@ -150,15 +152,38 @@ try {
 
         // Start background services
         contactTracker.start();
-        chatBridge.setRelayOutgoing(SettingsFragment.isRelayChatEnabled(context));
+        // Outbound is contact-targeted (+ optional periodic beacon path). Legacy
+        // "bridge all PLI/chat" toggles were removed — radio traffic follows ATAK contacts.
+        chatBridge.setRelayOutgoing(true);
         chatBridge.startOutgoingRelay();
 
-        // Enable outgoing CoT relay based on user preferences
-        cotBridge.setRelayOutgoingSa(SettingsFragment.isRelayCotEnabled(context));
+        // Do not blanket-flood outbound SA/geo over RX; relay when destination is a radio contact.
+        cotBridge.setRelayOutgoingSa(false);
         cotBridge.startOutgoingRelay();
 
         // 9. Start periodic beacon timer
         startBeaconTimer();
+
+        // Listen for runtime preference changes that require rescheduling timers.
+        try {
+            beaconIntervalReceiver = new android.content.BroadcastReceiver() {
+                @Override
+                public void onReceive(Context ctx, Intent i) {
+                    if (i == null) return;
+                    if (ACTION_BEACON_INTERVAL_CHANGED.equals(i.getAction())) {
+                        Log.d(TAG, "Beacon interval changed — rescheduling timer");
+                        startBeaconTimer();
+                    }
+                }
+            };
+            AtakBroadcast.DocumentedIntentFilter beaconFilter =
+                    new AtakBroadcast.DocumentedIntentFilter();
+            beaconFilter.addAction(ACTION_BEACON_INTERVAL_CHANGED);
+            AtakBroadcast.getInstance()
+                    .registerReceiver(beaconIntervalReceiver, beaconFilter);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to register beacon interval receiver", e);
+        }
 
         Log.i(TAG, "BTECH Relay plugin initialized successfully (callsign="
                 + callsign + ")");
@@ -193,6 +218,13 @@ try {
             chatBridge.dispose();
             chatBridge = null;
         }
+        if (beaconIntervalReceiver != null) {
+            try {
+                AtakBroadcast.getInstance().unregisterReceiver(beaconIntervalReceiver);
+            } catch (Exception ignored) {
+            }
+            beaconIntervalReceiver = null;
+        }
 
         Log.i(TAG, "BTECH Relay plugin shutdown complete");
     }
@@ -201,6 +233,12 @@ try {
      * Start periodic GPS beacon broadcasts.
      */
     private void startBeaconTimer() {
+        // Defensive: ensure we don't accidentally run multiple timers if the
+        // component is re-created without a clean destroy (can happen in ATAK).
+        if (beaconHandler != null && beaconRunnable != null) {
+            beaconHandler.removeCallbacks(beaconRunnable);
+        }
+
         beaconHandler = new Handler(Looper.getMainLooper());
         beaconRunnable = new Runnable() {
             @Override
@@ -208,11 +246,13 @@ try {
                 sendBeaconIfConnected();
                 int intervalSec = SettingsFragment.getBeaconIntervalSec(
                         pluginContext);
+                if (intervalSec < 1) intervalSec = 1;
                 beaconHandler.postDelayed(this, intervalSec * 1000L);
             }
         };
         int initialDelay = SettingsFragment.getBeaconIntervalSec(
                 pluginContext) * 1000;
+        if (initialDelay < 1000) initialDelay = 1000;
         beaconHandler.postDelayed(beaconRunnable, initialDelay);
     }
 

@@ -23,16 +23,12 @@ public class SettingsFragment extends PluginPreferenceFragment
         implements SharedPreferences.OnSharedPreferenceChangeListener {
 
     public static final String PREF_BEACON_INTERVAL = "btechrelay_beacon_interval";
-    public static final String PREF_RELAY_CHAT = "btechrelay_relay_chat";
-    public static final String PREF_RELAY_COT = "btechrelay_relay_cot";
     public static final String PREF_AUTO_RECONNECT = "btechrelay_auto_reconnect";
     public static final String PREF_TEAM_COLOR = "btechrelay_team_color";
     public static final String PREF_ENCRYPTION_ENABLED = "btechrelay_encryption_enabled";
     public static final String PREF_ENCRYPTION_PASSPHRASE = "btechrelay_encryption_passphrase";
 
     public static final String DEFAULT_BEACON_INTERVAL = "60";
-    public static final boolean DEFAULT_RELAY_CHAT = true;
-    public static final boolean DEFAULT_RELAY_COT = false;
     public static final boolean DEFAULT_AUTO_RECONNECT = true;
     public static final String DEFAULT_TEAM_COLOR = "Cyan";
 
@@ -140,16 +136,6 @@ public class SettingsFragment extends PluginPreferenceFragment
         } catch (NumberFormatException e) {
             return 60;
         }
-    }
-
-    public static boolean isRelayChatEnabled(Context context) {
-        return getPrefs(context)
-                .getBoolean(PREF_RELAY_CHAT, DEFAULT_RELAY_CHAT);
-    }
-
-    public static boolean isRelayCotEnabled(Context context) {
-        return getPrefs(context)
-                .getBoolean(PREF_RELAY_COT, DEFAULT_RELAY_COT);
     }
 
     public static boolean isAutoReconnectEnabled(Context context) {

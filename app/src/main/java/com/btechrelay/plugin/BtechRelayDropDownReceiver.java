@@ -13,8 +13,8 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.CompoundButton;
-import android.widget.EditText;
 import android.widget.Switch;
+import android.widget.EditText;
 import android.widget.TextView;
 
 import com.atakmap.android.dropdown.DropDown;
@@ -23,7 +23,6 @@ import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.maps.MapView;
 
 import com.btechrelay.plugin.bluetooth.BtConnectionManager;
-import com.btechrelay.plugin.chat.ChatBridge;
 import com.btechrelay.plugin.contacts.ContactTracker;
 import com.btechrelay.plugin.contacts.RadioContact;
 import com.btechrelay.plugin.cot.CotBridge;
@@ -63,7 +62,6 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
     private final BtConnectionManager btManager;
     private final ContactTracker contactTracker;
     private CotBridge cotBridge;
-    private ChatBridge chatBridge;
     private EncryptionManager encryptionManager;
 
     private View rootView;
@@ -80,10 +78,7 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
     private Button btnScan;
     private Button btnDisconnect;
 
-    // Interactive controls
     private Switch switchEncryption;
-    private Switch switchCotRelay;
-    private Switch switchChatRelay;
     private View passphraseRow;
     private EditText editPassphrase;
     private Button btnSetPassphrase;
@@ -110,11 +105,6 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
     public void setCotBridge(CotBridge cotBridge) {
         this.cotBridge = cotBridge;
     }
-
-    public void setChatBridge(ChatBridge chatBridge) {
-        this.chatBridge = chatBridge;
-    }
-
 
     public void setEncryptionManager(EncryptionManager encryptionManager) {
         this.encryptionManager = encryptionManager;
@@ -199,8 +189,6 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
 
         // Interactive switches
         switchEncryption = rootView.findViewById(getId("switch_encryption"));
-        switchCotRelay = rootView.findViewById(getId("switch_cot_relay"));
-        switchChatRelay = rootView.findViewById(getId("switch_chat_relay"));
         passphraseRow = rootView.findViewById(getId("passphrase_row"));
         editPassphrase = rootView.findViewById(getId("edit_passphrase"));
         btnSetPassphrase = rootView.findViewById(getId("btn_set_passphrase"));
@@ -270,34 +258,6 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
                 editPassphrase.setText("");
                 updateEncryptionStatus();
                 appendLog("Passphrase set — encryption active");
-            });
-        }
-
-        // --- CoT relay switch ---
-        if (switchCotRelay != null) {
-            switchCotRelay.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                SharedPreferences prefs = PreferenceManager
-                        .getDefaultSharedPreferences(getMapView().getContext());
-                prefs.edit().putBoolean(SettingsFragment.PREF_RELAY_COT, isChecked).apply();
-
-                if (cotBridge != null) {
-                    cotBridge.setRelayOutgoingSa(isChecked);
-                }
-                appendLog("CoT relay " + (isChecked ? "enabled" : "disabled"));
-            });
-        }
-
-        // --- Chat relay switch ---
-        if (switchChatRelay != null) {
-            switchChatRelay.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                SharedPreferences prefs = PreferenceManager
-                        .getDefaultSharedPreferences(getMapView().getContext());
-                prefs.edit().putBoolean(SettingsFragment.PREF_RELAY_CHAT, isChecked).apply();
-
-                if (chatBridge != null) {
-                    chatBridge.setRelayOutgoing(isChecked);
-                }
-                appendLog("Chat relay " + (isChecked ? "enabled" : "disabled"));
             });
         }
 
@@ -437,17 +397,8 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
         Context ctx = getMapView().getContext();
 
         boolean encOn = SettingsFragment.isEncryptionEnabled(ctx);
-        boolean cotRelay = SettingsFragment.isRelayCotEnabled(ctx);
-        boolean chatRelay = SettingsFragment.isRelayChatEnabled(ctx);
-
         if (switchEncryption != null) {
             switchEncryption.setChecked(encOn);
-        }
-        if (switchCotRelay != null) {
-            switchCotRelay.setChecked(cotRelay);
-        }
-        if (switchChatRelay != null) {
-            switchChatRelay.setChecked(chatRelay);
         }
 
         // Show/hide passphrase row
@@ -617,6 +568,11 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
 
                     editor.apply();
                     appendLog("Settings saved");
+                    try {
+                        AtakBroadcast.getInstance().sendBroadcast(
+                                new Intent(BtechRelayMapComponent.ACTION_BEACON_INTERVAL_CHANGED));
+                    } catch (Exception ignored) {
+                    }
                 })
                 .setNegativeButton("Cancel", null)
                 .show();

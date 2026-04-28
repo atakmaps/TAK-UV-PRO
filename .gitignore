@@ -27,6 +27,9 @@ app/build/
 # Debug / scratch
 build_output.txt
 jar_list.txt
+# Local logs/diagnostics — keep README; ignore everything else in scratch/
+scratch/*
+!scratch/README.txt
 
 # OS files
 Thumbs.db
