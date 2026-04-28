@@ -459,10 +459,19 @@ public class CotBridge {
             String type = event.getType();
             if (type == null) return;
 
+            // GeoChat (b-t-f) often lacks reliable toUID[] in PreSendProcessor; infer
+            // destination from CoT (__chat/chatgrp/chatroom/remarks) like SEND_MESSAGE/COT_PLACED.
+            if (!targetsBtechContact && "b-t-f".equals(type)) {
+                if (shouldRelayGeoChatToRadio(event)) {
+                    targetsBtechContact = true;
+                    Log.d(TAG, "GeoChat to BTECH contact via CoT routing (weak/missing toUIDs)");
+                }
+            }
+
             if (targetsBtechContact) {
                 Log.d(TAG, "Relaying contact-targeted CoT to radio: type=" + type
                         + " uid=" + event.getUID()
-                        + " toUIDs=" + toUIDs);
+                        + " toUIDs=" + java.util.Arrays.toString(toUIDs));
                 new Thread(() -> sendCotOverRadio(event)).start();
                 return;
             }
