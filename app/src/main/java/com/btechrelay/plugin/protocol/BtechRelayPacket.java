@@ -2,6 +2,7 @@ package com.btechrelay.plugin.protocol;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * BtechRelay custom packet format for efficient data transfer over radio.
@@ -21,6 +22,9 @@ import java.nio.ByteOrder;
  *   KISS → AX.25 → BtechRelayPacket
  */
 public class BtechRelayPacket {
+
+    /** Monotonic per-radio-session chat ids ( millis-based ids collided and confused ATAK). */
+    private static final AtomicInteger CHAT_MESSAGE_ID = new AtomicInteger(1);
 
     // Packet type codes
     public static final byte TYPE_COT = 0x01;
@@ -176,8 +180,11 @@ if (payload.length > 22) {
     public static BtechRelayPacket createChatPacket(String sender,
                                                     String chatroom,
                                                     String message) {
-        return createChatPacket(sender, chatroom,
-                (int)(System.currentTimeMillis() & 0x7FFFFFFF), message);
+        int mid = CHAT_MESSAGE_ID.getAndIncrement();
+        if (mid == 0) {
+            mid = CHAT_MESSAGE_ID.getAndIncrement();
+        }
+        return createChatPacket(sender, chatroom, mid, message);
     }
 
     /**

@@ -141,12 +141,13 @@ public class CotBuilder {
      * @param chatRoom   Chat room identifier (use "All Chat Rooms" for broadcast)
      * @return CotEvent for the chat message
      */
+    /** Pass wire {@code messageId != 0} from BtechRelay chat packet so GeoChat IDs stay unique vs ATAK merge. */
     public static CotEvent buildChatCot(String senderUid, String senderCall,
-                                        String message, String chatRoom) {
+                                        String message, String chatRoom,
+                                        long uniqueSuffix) {
         CotEvent event = new CotEvent();
 
-        String uid = "GeoChat." + senderUid + "." + chatRoom + "."
-                + System.currentTimeMillis();
+        String uid = "GeoChat." + senderUid + "." + chatRoom + "." + uniqueSuffix;
         event.setUID(uid);
         event.setType("b-t-f");
         event.setHow("h-g-i-g-o"); // human-generated

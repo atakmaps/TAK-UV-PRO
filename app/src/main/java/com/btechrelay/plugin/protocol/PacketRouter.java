@@ -4,8 +4,9 @@ import android.util.Log;
 
 import com.btechrelay.plugin.ax25.Ax25Frame;
 import com.btechrelay.plugin.ax25.AprsParser;
-import com.btechrelay.plugin.cot.CotBridge;
 import com.btechrelay.plugin.chat.ChatBridge;
+import com.btechrelay.plugin.cot.CotBridge;
+import com.btechrelay.plugin.util.CallsignUtil;
 import com.btechrelay.plugin.contacts.ContactTracker;
 import com.btechrelay.plugin.crypto.EncryptionManager;
 import com.btechrelay.plugin.protocol.PacketFragmenter;
@@ -140,7 +141,10 @@ public class PacketRouter {
                                         uid
                                 );
 
-                        c.addConnector(new com.atakmap.android.contact.PluginConnector("BTECH_RELAY"));
+                        // Must match Intent action registered in ChatBridge: ATAK broadcasts
+                        // outbound GeoChat to each contact's connector connection string (not SEND_MESSAGE).
+                        c.addConnector(new com.atakmap.android.contact.PluginConnector(
+                                ChatBridge.ACTION_PLUGIN_CONTACT_GEOCHAT_SEND));
                         c.addConnector(new com.atakmap.android.contact.IpConnector("BTECH_RELAY://" + uid));
 
                         com.atakmap.android.preference.AtakPreferences prefs =
@@ -157,6 +161,13 @@ public class PacketRouter {
                         // Also register a callsign→UID mapping for chat routing, since GeoChat
                         // destinations may appear as labels/rooms rather than explicit toUIDs.
                         cotBridge.registerBtechContactId(normalized, uid);
+                        // Radio chat packets truncate callsign (6-char AX.25 form, vowel-stripped).
+                        // Incoming chat uses that form (e.g. JNR) while GPS/contact use full CS (JUNIOR).
+                        String radioTrunc = CallsignUtil.toRadioCallsign(normalized);
+                        if (radioTrunc != null && !radioTrunc.isEmpty()
+                                && !radioTrunc.equalsIgnoreCase(normalized)) {
+                            cotBridge.registerBtechContactId(radioTrunc, uid);
+                        }
 
                     } catch (Exception e) {
                         android.util.Log.e("BTRelay.CONTACT", "Contact add failed", e);
@@ -227,7 +238,7 @@ public class PacketRouter {
             Log.d(TAG, "APRS message from " + msg.fromCallsign +
                     " to " + msg.toCallsign + ": " + msg.message);
             chatBridge.injectRadioMessage(msg.fromCallsign,
-                    msg.toCallsign, msg.message);
+                    msg.toCallsign, msg.message, 0);
             return;
         }
 
@@ -259,7 +270,7 @@ public class PacketRouter {
         String message = new String(msgBytes,
                 java.nio.charset.StandardCharsets.UTF_8);
 
-        Log.d(TAG, "Chat from " + sender + " [" + room + "]: " + message);
-        chatBridge.injectRadioMessage(sender, room, message);
+        Log.d(TAG, "Chat mid=" + messageId + " from " + sender + " [" + room + "]: " + message);
+        chatBridge.injectRadioMessage(sender, room, message, messageId);
     }
 }
