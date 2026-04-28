@@ -120,10 +120,13 @@ public class ChatBridge {
             }
         };
 
-        // Register for GeoChat CoT events
+        // Register for GeoChat send events.
+        // Some ATAK builds emit chat sends via SEND_MESSAGE (intent extras),
+        // and/or via COT_PLACED (with CoT XML).
         AtakBroadcast.DocumentedIntentFilter filter =
                 new AtakBroadcast.DocumentedIntentFilter();
         filter.addAction("com.atakmap.android.maps.COT_PLACED");
+        filter.addAction(ACTION_CHAT_SEND);
         AtakBroadcast.getInstance().registerReceiver(chatReceiver, filter);
 
         Log.d(TAG, "Outgoing chat relay started");
@@ -137,8 +140,60 @@ public class ChatBridge {
         if (btManager == null || !btManager.isConnected()) {
             return;
         }
+        if (intent == null) return;
 
         try {
+            final String action = intent.getAction();
+
+            // Path A: chat send intent with explicit extras (preferred if present).
+            if (ACTION_CHAT_SEND.equals(action)) {
+                String message = intent.getStringExtra("message");
+                String chatRoom = intent.getStringExtra("chatroom");
+                String toUid = intent.getStringExtra("toUID");
+                if (toUid == null) toUid = intent.getStringExtra("toUid");
+                if (toUid == null) toUid = intent.getStringExtra("uid");
+                if (chatRoom == null) chatRoom = intent.getStringExtra("room");
+
+                // Log intent shape for field discovery (keep it short).
+                try {
+                    android.os.Bundle extras = intent.getExtras();
+                    if (extras != null) {
+                        StringBuilder keys = new StringBuilder();
+                        for (String k : extras.keySet()) {
+                            if (keys.length() > 0) keys.append(",");
+                            keys.append(k);
+                        }
+                        Log.d(TAG, "SEND_MESSAGE extras keys: " + keys);
+                    }
+                } catch (Exception ignored) {
+                }
+
+                if (message == null || message.isEmpty()) {
+                    // Some builds use "text" instead of "message"
+                    message = intent.getStringExtra("text");
+                }
+                if (chatRoom == null || chatRoom.isEmpty()) {
+                    chatRoom = "All Chat Rooms";
+                }
+
+                // Only relay when the destination is a plugin-created contact.
+                boolean shouldRelay = false;
+                if (cotBridge != null) {
+                    if (toUid != null && cotBridge.isBtechContactUid(toUid)) {
+                        shouldRelay = true;
+                    } else if (toUid != null) {
+                        String resolved = cotBridge.resolveBtechUidForId(toUid);
+                        shouldRelay = cotBridge.isBtechContactUid(resolved);
+                    }
+                }
+                if (!shouldRelay) return;
+                if (message == null || message.isEmpty()) return;
+
+                Log.d(TAG, "Relaying outgoing chat (SEND_MESSAGE) to radio: " + message);
+                sendChatOverRadio(localCallsign, chatRoom, message);
+                return;
+            }
+
             String cotXml = intent.getStringExtra("xml");
             if (cotXml == null) return;
 
