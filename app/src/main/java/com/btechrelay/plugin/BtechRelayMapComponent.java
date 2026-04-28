@@ -201,6 +201,12 @@ try {
      * Start periodic GPS beacon broadcasts.
      */
     private void startBeaconTimer() {
+        // Defensive: ensure we don't accidentally run multiple timers if the
+        // component is re-created without a clean destroy (can happen in ATAK).
+        if (beaconHandler != null && beaconRunnable != null) {
+            beaconHandler.removeCallbacks(beaconRunnable);
+        }
+
         beaconHandler = new Handler(Looper.getMainLooper());
         beaconRunnable = new Runnable() {
             @Override
@@ -208,11 +214,13 @@ try {
                 sendBeaconIfConnected();
                 int intervalSec = SettingsFragment.getBeaconIntervalSec(
                         pluginContext);
+                if (intervalSec < 1) intervalSec = 1;
                 beaconHandler.postDelayed(this, intervalSec * 1000L);
             }
         };
         int initialDelay = SettingsFragment.getBeaconIntervalSec(
                 pluginContext) * 1000;
+        if (initialDelay < 1000) initialDelay = 1000;
         beaconHandler.postDelayed(beaconRunnable, initialDelay);
     }
 
