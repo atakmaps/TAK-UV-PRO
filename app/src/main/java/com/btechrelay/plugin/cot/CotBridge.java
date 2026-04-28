@@ -192,9 +192,10 @@ public class CotBridge {
     /**
      * Decide whether an outbound GeoChat CoT event should be relayed to radio.
      *
-     * ATAK GeoChat CoT typically includes destination UIDs in the `__chat/chatgrp`
-     * element (e.g. `uid0`, `uid1`). We relay only if any of those UIDs match a
-     * plugin-created BTECH contact UID.
+     * ATAK GeoChat CoT varies by release: {@code __chat} vs {@code chat}, and
+     * destination may appear under {@code chatgrp}, {@code chatroom}, or only in
+     * the serialized XML. We combine structured parsing with a containment check
+     * against registered radio-contact UIDs.
      */
     public boolean shouldRelayGeoChatToRadio(CotEvent event) {
         if (event == null) return false;
@@ -205,35 +206,72 @@ public class CotBridge {
 
             com.atakmap.coremap.cot.event.CotDetail chat =
                     detail.getFirstChildByName(0, "__chat");
-            if (chat == null) return false;
-
-            com.atakmap.coremap.cot.event.CotDetail chatgrp =
-                    chat.getFirstChildByName(0, "chatgrp");
-            if (chatgrp != null) {
-                String uid0 = chatgrp.getAttribute("uid0");
-                String uid1 = chatgrp.getAttribute("uid1");
-                if (isBtechContactUid(uid0) || isBtechContactUid(uid1)) {
-                    return true;
-                }
+            if (chat == null) {
+                chat = detail.getFirstChildByName(0, "chat");
+            }
+            if (chat != null && geoChatDetailTargetsBtechContact(chat, detail)) {
+                return true;
             }
 
-            // Fallback: try resolving by chatroom / remarks "to" field.
-            String chatRoom = chat.getAttribute("chatroom");
-            String uidFromRoom = resolveBtechUidForId(chatRoom);
-            if (isBtechContactUid(uidFromRoom)) return true;
-
-            com.atakmap.coremap.cot.event.CotDetail remarks =
-                    detail.getFirstChildByName(0, "remarks");
-            if (remarks != null) {
-                String to = remarks.getAttribute("to");
-                String uidFromTo = resolveBtechUidForId(to);
-                if (isBtechContactUid(uidFromTo)) return true;
+            // Some ATAK layouts omit renameable wrappers; probe full serialization.
+            if (geoChatXmlReferencesRegisteredBtechContact(event)) {
+                Log.d(TAG, "GeoChat relay: matched BTECH UID via CoT substring probe");
+                return true;
             }
 
             return false;
         } catch (Exception ignored) {
             return false;
         }
+    }
+
+    private boolean geoChatDetailTargetsBtechContact(
+            com.atakmap.coremap.cot.event.CotDetail chat,
+            com.atakmap.coremap.cot.event.CotDetail detail) {
+
+        com.atakmap.coremap.cot.event.CotDetail chatgrp =
+                chat.getFirstChildByName(0, "chatgrp");
+        if (chatgrp != null) {
+            String uid0 = chatgrp.getAttribute("uid0");
+            String uid1 = chatgrp.getAttribute("uid1");
+            if (isBtechContactUid(uid0) || isBtechContactUid(uid1)) {
+                return true;
+            }
+        }
+
+        for (String attr : new String[] {"chatroom", "id", "destination", "recipient"}) {
+            String chatRoom = chat.getAttribute(attr);
+            String uidFromRoom = resolveBtechUidForId(chatRoom);
+            if (isBtechContactUid(uidFromRoom)) return true;
+        }
+
+        com.atakmap.coremap.cot.event.CotDetail remarks =
+                detail.getFirstChildByName(0, "remarks");
+        if (remarks != null) {
+            String to = remarks.getAttribute("to");
+            String uidFromTo = resolveBtechUidForId(to);
+            if (isBtechContactUid(uidFromTo)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Last-resort matcher for outbound b-t-f when structured {@code __chat} is absent
+     * or uses nonstandard tags (different ATAK revisions).
+     */
+    private boolean geoChatXmlReferencesRegisteredBtechContact(CotEvent event) {
+        try {
+            if (btechContactUids.isEmpty()) return false;
+            String s = event.toString();
+            if (s == null || s.length() > 524288) return false;
+            for (String uid : btechContactUids) {
+                if (uid != null && uid.length() > 8 && s.indexOf(uid) >= 0) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     /**
