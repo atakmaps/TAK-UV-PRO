@@ -89,12 +89,10 @@ public class ChatBridge {
     /**
      * Inject a message received from the radio into ATAK as GeoChat.
      *
-     * @param fromCallsign Sender callsign
-     * @param toCallsign   Destination (callsign or room name)
-     * @param message      Message text
-     */
-    /**
-     * @param radioPacketMessageId BtechRelay TYPE_CHAT payload id ({@code putInt}); 0 if unknown (APRS path).
+     * @param fromCallsign         Sender callsign (may be AX.25-truncated)
+     * @param toCallsign           Destination (callsign or room name) from the wire
+     * @param message              Message body
+     * @param radioPacketMessageId TYPE_CHAT payload id ({@code putInt}); 0 if unknown (APRS path).
      */
     public void injectRadioMessage(String fromCallsign, String toCallsign,
                                    String message, int radioPacketMessageId) {
@@ -113,6 +111,18 @@ public class ChatBridge {
             chatRoom = "All Chat Rooms";
         } else {
             chatRoom = toCallsign.trim();
+        }
+
+        // Direct DM from a known peer: GeoChat threads by conversationId must match opening
+        // chat from Contacts (ANDROID-<callsign>). Using RF destination (e.g. VETTE1) as
+        // chatroom put messages under "VETTE1" while UI opens "ANDROID-JUNIOR" — blank thread.
+        if (!"All Chat Rooms".equalsIgnoreCase(chatRoom)) {
+            String peerUid = cotBridge.resolveBtechUidForId(fromCallsign);
+            if (peerUid != null && !peerUid.isEmpty()) {
+                Log.d(TAG, "Inbound DM: thread id " + chatRoom + " → " + peerUid
+                        + " (match contact chat)");
+                chatRoom = peerUid;
+            }
         }
 
         Log.d(TAG, "Injecting radio message (mid=" + radioPacketMessageId + "): "
