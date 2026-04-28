@@ -4,6 +4,9 @@ build/
 local.properties
 gradle.properties
 
+# TAK dev plugin tooling (timestamp/hash churn — regenerated per dev machine)
+.takdev/plugin.properties
+
 # Android Studio / IDE
 .idea/
 *.iml
