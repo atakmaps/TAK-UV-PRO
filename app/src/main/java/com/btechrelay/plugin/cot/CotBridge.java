@@ -73,6 +73,31 @@ public class CotBridge {
     private static final long SA_RELAY_INTERVAL_MS = 30_000;
     private long lastSaRelay = 0;
 
+    /**
+     * Injected inbound GeoChat (and similar) is re-processed by core comms; PreSendProcessor
+     * then sees the same b-t-f with toUIDs pointing at a BTECH contact and would re-transmit
+     * over RF (echo loop, duplicate fragments, unknown receipt UIDs).
+     */
+    private static final long INBOUND_INJECT_NO_RELAY_MS = 10_000L;
+    private final Map<String, Long> inboundInjectNoRelayUntil = new ConcurrentHashMap<>();
+
+    private void markInboundInjectSkipOutboundRelay(String cotUid) {
+        if (cotUid == null || cotUid.isEmpty()) return;
+        inboundInjectNoRelayUntil.put(cotUid,
+                System.currentTimeMillis() + INBOUND_INJECT_NO_RELAY_MS);
+    }
+
+    private boolean shouldSkipOutboundRelayWasInboundInject(String cotUid) {
+        if (cotUid == null) return false;
+        Long until = inboundInjectNoRelayUntil.get(cotUid);
+        if (until == null) return false;
+        if (System.currentTimeMillis() > until) {
+            inboundInjectNoRelayUntil.remove(cotUid);
+            return false;
+        }
+        return true;
+    }
+
     public CotBridge(Context pluginContext, MapView mapView) {
         this.pluginContext = pluginContext;
         this.mapView = mapView;
@@ -323,6 +348,9 @@ public class CotBridge {
             CotEvent event = CotEvent.parse(xml);
             if (event != null && event.isValid()) {
                 Log.d(TAG, "Injecting decompressed CoT: " + event.getUID());
+                if ("b-t-f".equals(event.getType())) {
+                    markInboundInjectSkipOutboundRelay(event.getUID());
+                }
                 dispatchCotEvent(event);
             }
         } catch (Exception e) {
@@ -364,6 +392,7 @@ public class CotBridge {
             if (event != null && event.isValid()) {
                 Log.d(TAG, "Injecting chat CoT from " + displayCallsign
                         + " (uid=" + canonicalUid + " midpkt=" + radioPacketMessageId + ")");
+                markInboundInjectSkipOutboundRelay(event.getUID());
                 dispatchCotEvent(event);
             }
         } catch (Exception e) {
@@ -552,6 +581,10 @@ public class CotBridge {
 
             if (!btConnected) return;
 
+            if (shouldSkipOutboundRelayWasInboundInject(event.getUID())) {
+                return;
+            }
+
             // Contact-targeted send: only relay when ATAK is sending to a
             // plugin-registered radio contact.
             boolean targetsBtechContact = false;
@@ -626,6 +659,7 @@ public class CotBridge {
     private void maybeRelayGeoChatFromCommsLogger(CotEvent event) {
         if (btManager == null || !btManager.isConnected()) return;
         if (event == null || !"b-t-f".equals(event.getType())) return;
+        if (shouldSkipOutboundRelayWasInboundInject(event.getUID())) return;
         Log.d(TAG, "CommsLogger logSend b-t-f uid=" + event.getUID());
         if (!shouldRelayGeoChatToRadio(event)) return;
 
