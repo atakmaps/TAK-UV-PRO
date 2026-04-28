@@ -513,20 +513,23 @@ public class CotBridge {
         }
 
         preSendProcessor = (event, toUIDs) -> {
-            if (btManager == null || !btManager.isConnected()) return;
             if (event == null) return;
 
             String type = event.getType();
+            boolean btConnected = btManager != null && btManager.isConnected();
 
-            // Outbound GeoChat hits PreSend BEFORE commo's contact table; CommsLogger only
-            // fires after a successful core send — don't rely on logger for plugin contacts.
+            // Log GeoChat BEFORE BT gate — previous bug: early return hid whether PreSend
+            // fired at all (shows up as zero lines when BLE disconnected during send tests).
             if ("b-t-f".equals(type)) {
-                Log.d(TAG, "PreSend GeoChat uid=" + event.getUID()
+                Log.d(TAG, "PreSend GeoChat bluetoothOk=" + btConnected
+                        + " uid=" + event.getUID()
                         + " toUIDs="
                         + (toUIDs == null ? "null"
                         : java.util.Arrays.toString(toUIDs))
-                        + " btechUids=" + btechContactUids.size());
+                        + " registeredBtechUids=" + btechContactUids.size());
             }
+
+            if (!btConnected) return;
 
             // Contact-targeted send: only relay when ATAK is sending to a
             // plugin-registered radio contact.
