@@ -36,6 +36,8 @@ public class BtechRelayMapComponent extends DropDownMapComponent {
 
     private static final String TAG = "BtechRelay";
     public static final String PLUGIN_PACKAGE = "com.btechrelay.plugin";
+    public static final String ACTION_BEACON_INTERVAL_CHANGED =
+            "com.btechrelay.plugin.BEACON_INTERVAL_CHANGED";
 
     private Context pluginContext;
     private MapView mapView;
@@ -50,6 +52,7 @@ public class BtechRelayMapComponent extends DropDownMapComponent {
     private EncryptionManager encryptionManager;
     private Handler beaconHandler;
     private Runnable beaconRunnable;
+    private android.content.BroadcastReceiver beaconIntervalReceiver;
 
     @Override
     public void onCreate(Context context, Intent intent, MapView view) {
@@ -160,6 +163,27 @@ try {
         // 9. Start periodic beacon timer
         startBeaconTimer();
 
+        // Listen for runtime preference changes that require rescheduling timers.
+        try {
+            beaconIntervalReceiver = new android.content.BroadcastReceiver() {
+                @Override
+                public void onReceive(Context ctx, Intent i) {
+                    if (i == null) return;
+                    if (ACTION_BEACON_INTERVAL_CHANGED.equals(i.getAction())) {
+                        Log.d(TAG, "Beacon interval changed — rescheduling timer");
+                        startBeaconTimer();
+                    }
+                }
+            };
+            AtakBroadcast.DocumentedIntentFilter beaconFilter =
+                    new AtakBroadcast.DocumentedIntentFilter();
+            beaconFilter.addAction(ACTION_BEACON_INTERVAL_CHANGED);
+            AtakBroadcast.getInstance()
+                    .registerReceiver(beaconIntervalReceiver, beaconFilter);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to register beacon interval receiver", e);
+        }
+
         Log.i(TAG, "BTECH Relay plugin initialized successfully (callsign="
                 + callsign + ")");
     }
@@ -192,6 +216,13 @@ try {
         if (chatBridge != null) {
             chatBridge.dispose();
             chatBridge = null;
+        }
+        if (beaconIntervalReceiver != null) {
+            try {
+                AtakBroadcast.getInstance().unregisterReceiver(beaconIntervalReceiver);
+            } catch (Exception ignored) {
+            }
+            beaconIntervalReceiver = null;
         }
 
         Log.i(TAG, "BTECH Relay plugin shutdown complete");

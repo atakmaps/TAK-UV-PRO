@@ -617,6 +617,11 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
 
                     editor.apply();
                     appendLog("Settings saved");
+                    try {
+                        AtakBroadcast.getInstance().sendBroadcast(
+                                new Intent(BtechRelayMapComponent.ACTION_BEACON_INTERVAL_CHANGED));
+                    } catch (Exception ignored) {
+                    }
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
