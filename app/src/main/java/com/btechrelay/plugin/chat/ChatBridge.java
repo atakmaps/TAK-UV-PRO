@@ -139,17 +139,18 @@ public class ChatBridge {
         }
 
         try {
-            // Only relay GeoChat CoT messages that are targeted at a BTECH-created contact.
-            // This prevents relaying all chat over radio when the user is chatting with
-            // non-radio (network) contacts.
-            if (cotBridge != null && !cotBridge.shouldRelayToRadio(intent)) {
-                return;
-            }
             String cotXml = intent.getStringExtra("xml");
             if (cotXml == null) return;
 
             CotEvent event = CotEvent.parse(cotXml);
             if (event == null) return;
+
+            // Only relay GeoChat CoT messages when the destination is a plugin-created
+            // (radio) contact. This prevents relaying all chat over radio when the user
+            // chats with network contacts.
+            if (cotBridge != null && !cotBridge.shouldRelayGeoChatToRadio(event)) {
+                return;
+            }
 
             // Extract message from remarks
             CotDetail detail = event.getDetail();

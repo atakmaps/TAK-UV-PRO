@@ -154,6 +154,9 @@ public class PacketRouter {
                         // Mark this UID as a radio-transport endpoint so we can
                         // route ATAK "send to contact" actions over the radio link.
                         cotBridge.registerBtechContactUid(uid);
+                        // Also register a callsign→UID mapping for chat routing, since GeoChat
+                        // destinations may appear as labels/rooms rather than explicit toUIDs.
+                        cotBridge.registerBtechContactId(normalized, uid);
 
                     } catch (Exception e) {
                         android.util.Log.e("BTRelay.CONTACT", "Contact add failed", e);

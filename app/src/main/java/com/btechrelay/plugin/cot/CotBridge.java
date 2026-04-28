@@ -19,6 +19,7 @@ import com.btechrelay.plugin.protocol.PacketFragmenter;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.Map;
 
 /**
  * Bridges between ATAK CoT events and the radio link.
@@ -53,6 +54,12 @@ public class CotBridge {
      * Populated when the plugin creates/registers contacts from radio packets.
      */
     private final Set<String> btechContactUids = ConcurrentHashMap.newKeySet();
+
+    /**
+     * Map plugin-created display identifiers to contact UIDs.
+     * Key is typically the normalized callsign (upper) or a known chat-room label.
+     */
+    private final Map<String, String> btechIdToUid = new ConcurrentHashMap<>();
 
     /** Minimum interval between outgoing SA relays (ms) */
     private static final long SA_RELAY_INTERVAL_MS = 30_000;
@@ -94,6 +101,32 @@ public class CotBridge {
     }
 
     /**
+     * Register a plugin-created BTECH contact identifier (e.g. callsign) → UID mapping.
+     * Used for routing GeoChat messages where ATAK does not provide explicit toUIDs.
+     */
+    public void registerBtechContactId(String id, String uid) {
+        if (id == null || uid == null) return;
+        String key = id.trim().toUpperCase();
+        if (key.isEmpty()) return;
+        btechIdToUid.put(key, uid);
+        registerBtechContactUid(uid);
+    }
+
+    public boolean isBtechContactUid(String uid) {
+        return uid != null && btechContactUids.contains(uid);
+    }
+
+    /**
+     * Resolve a chat destination label/callsign to a BTECH contact UID, if known.
+     */
+    public String resolveBtechUidForId(String id) {
+        if (id == null) return null;
+        String key = id.trim().toUpperCase();
+        if (key.isEmpty()) return null;
+        return btechIdToUid.get(key);
+    }
+
+    /**
      * Decide whether an ATAK outbound event (from broadcast/intent) should be
      * relayed to the radio based on its destination UIDs.
      *
@@ -112,6 +145,60 @@ public class CotBridge {
         } catch (Exception ignored) {
         }
         return false;
+    }
+
+    /**
+     * Decide whether an outbound GeoChat CoT event should be relayed to radio.
+     *
+     * ATAK GeoChat CoT typically includes destination UIDs in the `__chat/chatgrp`
+     * element (e.g. `uid0`, `uid1`). We relay only if any of those UIDs match a
+     * plugin-created BTECH contact UID.
+     */
+    public boolean shouldRelayGeoChatToRadio(CotEvent event) {
+        if (event == null) return false;
+        try {
+            if (!"b-t-f".equals(event.getType())) return false;
+            com.atakmap.coremap.cot.event.CotDetail detail = event.getDetail();
+            if (detail == null) return false;
+
+            com.atakmap.coremap.cot.event.CotDetail chat =
+                    detail.getFirstChildByName(0, "__chat");
+            if (chat == null) return false;
+
+            com.atakmap.coremap.cot.event.CotDetail chatgrp =
+                    chat.getFirstChildByName(0, "chatgrp");
+            if (chatgrp != null) {
+                String uid0 = chatgrp.getAttribute("uid0");
+                String uid1 = chatgrp.getAttribute("uid1");
+                if (isBtechContactUid(uid0) || isBtechContactUid(uid1)) {
+                    return true;
+                }
+            }
+
+            // Fallback: try resolving by chatroom / remarks "to" field.
+            String chatRoom = chat.getAttribute("chatroom");
+            String uidFromRoom = resolveBtechUidForId(chatRoom);
+            if (isBtechContactUid(uidFromRoom)) return true;
+
+            com.atakmap.coremap.cot.event.CotDetail remarks =
+                    detail.getFirstChildByName(0, "remarks");
+            if (remarks != null) {
+                String to = remarks.getAttribute("to");
+                String uidFromTo = resolveBtechUidForId(to);
+                if (isBtechContactUid(uidFromTo)) return true;
+            }
+
+            return false;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    /**
+     * Backwards-compatible name for chat routing decisions.
+     */
+    public boolean shouldRelayChatCotToRadio(CotEvent event) {
+        return shouldRelayGeoChatToRadio(event);
     }
 
     /**
