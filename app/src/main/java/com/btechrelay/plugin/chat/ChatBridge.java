@@ -35,9 +35,19 @@ public class ChatBridge {
 
     private static final String TAG = "BtechRelay.ChatBridge";
 
-    /** ATAK broadcasts this when a GeoChat message is sent */
+    /** ATAK broadcasts some GeoChat sends with this intent (extras vary). */
     private static final String ACTION_CHAT_SEND =
             "com.atakmap.android.chat.SEND_MESSAGE";
+
+    /**
+     * Broadcast action for outbound GeoChat to a contact whose delivery path uses
+     * {@link com.atakmap.android.contact.PluginConnector}. ATAK invokes
+     * {@code new Intent(connector.getConnectionString())...putExtra(\"MESSAGE\", bundle)}
+     * (see ChatManagerMapComponent.sendMessageToDests) — so the action must be predictable
+     * for our listener, not an opaque placeholder string.
+     */
+    public static final String ACTION_PLUGIN_CONTACT_GEOCHAT_SEND =
+            "com.btechrelay.plugin.action.PLUGIN_CONTACT_GEOCHAT_SEND";
 
     private final Context pluginContext;
     private final MapView mapView;
@@ -127,9 +137,59 @@ public class ChatBridge {
                 new AtakBroadcast.DocumentedIntentFilter();
         filter.addAction("com.atakmap.android.maps.COT_PLACED");
         filter.addAction(ACTION_CHAT_SEND);
+        filter.addAction(ACTION_PLUGIN_CONTACT_GEOCHAT_SEND);
         AtakBroadcast.getInstance().registerReceiver(chatReceiver, filter);
 
         Log.d(TAG, "Outgoing chat relay started");
+    }
+
+    private static android.os.Bundle getMessageBundleExtra(Intent intent) {
+        if (intent == null) return null;
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                return intent.getParcelableExtra("MESSAGE",
+                        android.os.Bundle.class);
+            }
+            return intent.getParcelableExtra("MESSAGE");
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Outbound GeoChat for plugin-connector contacts: {@code MESSAGE} bundle from
+     * ChatManager → GeoChatService (conversationId / message keys).
+     *
+     * @return true if handled (relay attempted for a matching BTECH destination)
+     */
+    boolean relayPluginGeoChatMessageBundle(android.os.Bundle b) {
+        if (cotBridge == null || b == null) return false;
+
+        String conversationId = b.getString("conversationId");
+        String msg = b.getString("message");
+        if (msg == null || msg.isEmpty()) {
+            return false;
+        }
+
+        if (!cotBridge.isBtechOutboundChatDestination(conversationId, null)) {
+            return false;
+        }
+
+        String room = "All Chat Rooms";
+        if (conversationId != null) {
+            String cid = conversationId.trim();
+            if (!cid.isEmpty() && !"All Chat Rooms".equalsIgnoreCase(cid)) {
+                if (cid.startsWith("ANDROID-")) {
+                    room = cid.substring("ANDROID-".length());
+                } else {
+                    room = cid;
+                }
+            }
+        }
+
+        Log.d(TAG, "Relay outgoing plugin-contact GeoChat to radio room=" + room);
+        sendChatOverRadio(localCallsign, room, msg);
+        return true;
     }
 
     /**
@@ -144,6 +204,16 @@ public class ChatBridge {
 
         try {
             final String action = intent.getAction();
+
+            // Path plugin-contact GeoChat (ChatManager sends Intent(action=connectionString, MESSAGE=bundle)).
+            if (ACTION_PLUGIN_CONTACT_GEOCHAT_SEND.equals(action)) {
+                android.os.Bundle messageBundle = getMessageBundleExtra(intent);
+                if (messageBundle != null) {
+                    if (relayPluginGeoChatMessageBundle(messageBundle)) {
+                        return;
+                    }
+                }
+            }
 
             // Path A: chat send intent with explicit extras (preferred if present).
             if (ACTION_CHAT_SEND.equals(action)) {

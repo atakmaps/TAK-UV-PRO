@@ -4,8 +4,8 @@ import android.util.Log;
 
 import com.btechrelay.plugin.ax25.Ax25Frame;
 import com.btechrelay.plugin.ax25.AprsParser;
-import com.btechrelay.plugin.cot.CotBridge;
 import com.btechrelay.plugin.chat.ChatBridge;
+import com.btechrelay.plugin.cot.CotBridge;
 import com.btechrelay.plugin.contacts.ContactTracker;
 import com.btechrelay.plugin.crypto.EncryptionManager;
 import com.btechrelay.plugin.protocol.PacketFragmenter;
@@ -140,7 +140,10 @@ public class PacketRouter {
                                         uid
                                 );
 
-                        c.addConnector(new com.atakmap.android.contact.PluginConnector("BTECH_RELAY"));
+                        // Must match Intent action registered in ChatBridge: ATAK broadcasts
+                        // outbound GeoChat to each contact's connector connection string (not SEND_MESSAGE).
+                        c.addConnector(new com.atakmap.android.contact.PluginConnector(
+                                ChatBridge.ACTION_PLUGIN_CONTACT_GEOCHAT_SEND));
                         c.addConnector(new com.atakmap.android.contact.IpConnector("BTECH_RELAY://" + uid));
 
                         com.atakmap.android.preference.AtakPreferences prefs =
