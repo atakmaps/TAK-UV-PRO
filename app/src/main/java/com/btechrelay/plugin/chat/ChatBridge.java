@@ -139,6 +139,12 @@ public class ChatBridge {
         }
 
         try {
+            // Only relay GeoChat CoT messages that are targeted at a BTECH-created contact.
+            // This prevents relaying all chat over radio when the user is chatting with
+            // non-radio (network) contacts.
+            if (cotBridge != null && !cotBridge.shouldRelayToRadio(intent)) {
+                return;
+            }
             String cotXml = intent.getStringExtra("xml");
             if (cotXml == null) return;
 
@@ -173,7 +179,6 @@ public class ChatBridge {
 
             Log.d(TAG, "Relaying outgoing chat to radio: " + message);
             sendChatOverRadio(localCallsign, chatRoom, message);
-            android.util.Log.d(TAG, "🔥 FORCED RADIO TX (DIRECT CALL)");
 
         } catch (Exception e) {
             Log.e(TAG, "Error handling outgoing chat", e);

@@ -17,6 +17,8 @@ import com.btechrelay.plugin.protocol.BtechRelayPacket;
 import com.btechrelay.plugin.protocol.PacketFragmenter;
 
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Bridges between ATAK CoT events and the radio link.
@@ -46,6 +48,12 @@ public class CotBridge {
     /** Whether to relay all outgoing SA to radio (can flood the channel) */
     private boolean relayOutgoingSa = false;
 
+    /**
+     * UIDs that the plugin considers radio-transport contacts.
+     * Populated when the plugin creates/registers contacts from radio packets.
+     */
+    private final Set<String> btechContactUids = ConcurrentHashMap.newKeySet();
+
     /** Minimum interval between outgoing SA relays (ms) */
     private static final long SA_RELAY_INTERVAL_MS = 30_000;
     private long lastSaRelay = 0;
@@ -73,6 +81,37 @@ public class CotBridge {
 
     public void setEncryptionManager(EncryptionManager em) {
         this.encryptionManager = em;
+    }
+
+    /**
+     * Register a contact UID as a BTECH Relay radio endpoint.
+     * This is used to route ATAK "send to contact" actions to the radio link
+     * without globally relaying all CoT.
+     */
+    public void registerBtechContactUid(String uid) {
+        if (uid == null) return;
+        btechContactUids.add(uid);
+    }
+
+    /**
+     * Decide whether an ATAK outbound event (from broadcast/intent) should be
+     * relayed to the radio based on its destination UIDs.
+     *
+     * Many ATAK broadcasts include a `toUIDs` extra. If that list intersects
+     * with our plugin-created contact UIDs, we treat it as a radio-targeted send.
+     */
+    public boolean shouldRelayToRadio(Intent intent) {
+        if (intent == null) return false;
+        try {
+            java.util.ArrayList<String> toUIDs =
+                    intent.getStringArrayListExtra("toUIDs");
+            if (toUIDs == null || toUIDs.isEmpty()) return false;
+            for (String uid : toUIDs) {
+                if (uid != null && btechContactUids.contains(uid)) return true;
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     /**
@@ -273,18 +312,39 @@ public class CotBridge {
                 + (relayOutgoingSa ? "enabled" : "disabled"));
 
         preSendProcessor = (event, toUIDs) -> {
-            if (!relayOutgoingSa) return;
             if (btManager == null || !btManager.isConnected()) return;
+            if (event == null) return;
 
-            // Rate-limit to prevent channel flooding
-            long now = System.currentTimeMillis();
-            if (now - lastSaRelay < SA_RELAY_INTERVAL_MS) return;
+            // Contact-targeted send: only relay when ATAK is sending to a
+            // plugin-registered radio contact.
+            boolean targetsBtechContact = false;
+            if (toUIDs != null && !toUIDs.isEmpty()) {
+                for (String uid : toUIDs) {
+                    if (uid != null && btechContactUids.contains(uid)) {
+                        targetsBtechContact = true;
+                        break;
+                    }
+                }
+            }
 
             String type = event.getType();
             if (type == null) return;
 
-            // Relay position reports (a-f-G = friendly ground, a-f-A = air, etc.)
-            // Also relay CASEVAC (b-r-f-h-c), 9-line (b-r-f-h-c), and other types
+            if (targetsBtechContact) {
+                Log.d(TAG, "Relaying contact-targeted CoT to radio: type=" + type
+                        + " uid=" + event.getUID()
+                        + " toUIDs=" + toUIDs);
+                new Thread(() -> sendCotOverRadio(event)).start();
+                return;
+            }
+
+            // Optional broadcast SA relay (rate-limited) — does NOT depend on
+            // a specific destination contact.
+            if (!relayOutgoingSa) return;
+
+            long now = System.currentTimeMillis();
+            if (now - lastSaRelay < SA_RELAY_INTERVAL_MS) return;
+
             boolean shouldRelay = type.startsWith("a-f-")   // friendly SA
                     || type.startsWith("b-r-f-h")           // CASEVAC/medevac
                     || type.startsWith("b-m-p")             // markers/points
@@ -292,15 +352,9 @@ public class CotBridge {
                     || type.startsWith("u-");               // user-defined
             if (!shouldRelay) return;
 
-            // Don't relay our own injected radio events (avoid loops)
-            String uid = event.getUID();
-            if (uid != null && uid.startsWith("ANDROID-")) return;
-
             lastSaRelay = now;
-            Log.d(TAG, "Relaying outgoing CoT to radio: " + type
-                    + " uid=" + uid);
-
-            // Send on a background thread to avoid blocking the dispatcher
+            Log.d(TAG, "Relaying broadcast CoT to radio: type=" + type
+                    + " uid=" + event.getUID());
             new Thread(() -> sendCotOverRadio(event)).start();
         };
 

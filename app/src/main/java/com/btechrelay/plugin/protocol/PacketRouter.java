@@ -151,6 +151,9 @@ public class PacketRouter {
                                 com.atakmap.android.contact.PluginConnector.CONNECTOR_TYPE);
 
                         contacts.addContact(c);
+                        // Mark this UID as a radio-transport endpoint so we can
+                        // route ATAK "send to contact" actions over the radio link.
+                        cotBridge.registerBtechContactUid(uid);
 
                     } catch (Exception e) {
                         android.util.Log.e("BTRelay.CONTACT", "Contact add failed", e);
