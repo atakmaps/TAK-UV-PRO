@@ -7,6 +7,7 @@ import android.util.Log;
 import com.atakmap.android.cot.CotMapComponent;
 import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.maps.MapView;
+import com.atakmap.comms.CommsLogger;
 import com.atakmap.comms.CommsMapComponent;
 import com.atakmap.coremap.cot.event.CotEvent;
 
@@ -45,6 +46,13 @@ public class CotBridge {
     private String teamColor = "Cyan";
     private EncryptionManager encryptionManager;
     private CommsMapComponent.PreSendProcessor preSendProcessor;
+
+    /** Catches outbound GeoChat: ATAK sends via CotMapComponent external dispatcher, not PreSend. */
+    private CommsLogger outboundCommsLogger;
+
+    /** Dedupe if both PreSend and CommsLogger see the same GeoChat send */
+    private volatile String lastGeoChatRelayDedupeKey;
+    private volatile long lastGeoChatRelayDedupeMs;
 
     /** Whether to relay all outgoing SA to radio (can flood the channel) */
     private boolean relayOutgoingSa = false;
@@ -478,6 +486,32 @@ public class CotBridge {
         Log.d(TAG, "Outgoing CoT relay: "
                 + (relayOutgoingSa ? "enabled" : "disabled"));
 
+        outboundCommsLogger = new CommsLogger() {
+            @Override
+            public void dispose() {
+            }
+
+            @Override
+            public void logSend(CotEvent event, String dest) {
+                maybeRelayGeoChatFromCommsLogger(event);
+            }
+
+            @Override
+            public void logSend(CotEvent event, String[] dests) {
+                maybeRelayGeoChatFromCommsLogger(event);
+            }
+
+            @Override
+            public void logReceive(CotEvent event, String src, String dest) {
+            }
+        };
+        try {
+            CommsMapComponent.getInstance().registerCommsLogger(outboundCommsLogger);
+            Log.d(TAG, "Registered CommsLogger for outbound GeoChat capture");
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to register CommsLogger", e);
+        }
+
         preSendProcessor = (event, toUIDs) -> {
             if (btManager == null || !btManager.isConnected()) return;
             if (event == null) return;
@@ -549,11 +583,44 @@ public class CotBridge {
     }
 
     /**
+     * GeoChatService dispatches outbound chat via CotMap external path; capture here.
+     */
+    private void maybeRelayGeoChatFromCommsLogger(CotEvent event) {
+        if (btManager == null || !btManager.isConnected()) return;
+        if (event == null || !"b-t-f".equals(event.getType())) return;
+        if (!shouldRelayGeoChatToRadio(event)) return;
+
+        String uid = event.getUID();
+        if (uid == null) return;
+        long now = System.currentTimeMillis();
+        synchronized (this) {
+            if (uid.equals(lastGeoChatRelayDedupeKey)
+                    && (now - lastGeoChatRelayDedupeMs) < 2000L) {
+                return;
+            }
+            lastGeoChatRelayDedupeKey = uid;
+            lastGeoChatRelayDedupeMs = now;
+        }
+
+        Log.d(TAG, "Outbound GeoChat (CommsLogger) → radio: uid=" + uid);
+        new Thread(() -> sendCotOverRadio(event)).start();
+    }
+
+    /**
      * Stop and clean up.
      */
     public void dispose() {
         // Unregister PreSendProcessor — no unregister API, just null it out
         preSendProcessor = null;
+        if (outboundCommsLogger != null) {
+            try {
+                CommsMapComponent.getInstance()
+                        .unregisterCommsLogger(outboundCommsLogger);
+            } catch (Exception e) {
+                Log.w(TAG, "unregisterCommsLogger", e);
+            }
+            outboundCommsLogger = null;
+        }
         Log.d(TAG, "CotBridge disposed");
     }
 }

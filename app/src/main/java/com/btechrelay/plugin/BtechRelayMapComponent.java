@@ -126,7 +126,6 @@ try {
         dropDownReceiver = new BtechRelayDropDownReceiver(
                 view, pluginContext, btConnectionManager, contactTracker);
         dropDownReceiver.setCotBridge(cotBridge);
-        dropDownReceiver.setChatBridge(chatBridge);
         dropDownReceiver.setEncryptionManager(encryptionManager);
 
 
@@ -153,11 +152,13 @@ try {
 
         // Start background services
         contactTracker.start();
-        chatBridge.setRelayOutgoing(SettingsFragment.isRelayChatEnabled(context));
+        // Outbound is contact-targeted (+ optional periodic beacon path). Legacy
+        // "bridge all PLI/chat" toggles were removed — radio traffic follows ATAK contacts.
+        chatBridge.setRelayOutgoing(true);
         chatBridge.startOutgoingRelay();
 
-        // Enable outgoing CoT relay based on user preferences
-        cotBridge.setRelayOutgoingSa(SettingsFragment.isRelayCotEnabled(context));
+        // Do not blanket-flood outbound SA/geo over RX; relay when destination is a radio contact.
+        cotBridge.setRelayOutgoingSa(false);
         cotBridge.startOutgoingRelay();
 
         // 9. Start periodic beacon timer

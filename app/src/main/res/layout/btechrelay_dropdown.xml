@@ -185,7 +185,7 @@
                 android:paddingTop="4dp" />
         </LinearLayout>
 
-        <!-- ==================== RELAY SETTINGS ==================== -->
+        <!-- ==================== BEACON (interval display) ==================== -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -197,73 +197,11 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="RELAY"
+                android:text="BEACON"
                 android:textColor="#FF00BCD4"
                 android:textSize="12sp"
                 android:textStyle="bold"
                 android:paddingBottom="4dp" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingTop="2dp">
-
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="PLI / SA to Radio"
-                    android:textColor="#FFFFFFFF"
-                    android:textSize="13sp" />
-
-                <Switch
-                    android:id="@+id/switch_cot_relay"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:checked="false" />
-            </LinearLayout>
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Forwards CoT, CASEVAC, markers over radio"
-                android:textColor="#FF888888"
-                android:textSize="11sp"
-                android:paddingTop="1dp"
-                android:paddingBottom="6dp" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingTop="2dp">
-
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="GeoChat to Radio"
-                    android:textColor="#FFFFFFFF"
-                    android:textSize="13sp" />
-
-                <Switch
-                    android:id="@+id/switch_chat_relay"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:checked="true" />
-            </LinearLayout>
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Bridges ATAK GeoChat with radio network"
-                android:textColor="#FF888888"
-                android:textSize="11sp"
-                android:paddingTop="1dp"
-                android:paddingBottom="6dp" />
 
             <LinearLayout
                 android:layout_width="match_parent"
