@@ -336,13 +336,28 @@ public class CotBridge {
     public void injectChatCot(String senderCallsign, String message,
                               String chatRoom) {
         try {
-            String senderUid = "ANDROID-" + senderCallsign.trim().toUpperCase()
-                    .toUpperCase();
+            String trimmed = senderCallsign != null ? senderCallsign.trim() : "";
+            // Align with GPS-registered contacts: AX.25 truncates sender (e.g. JUNIOR → JNR).
+            String canonicalUid = resolveBtechUidForId(trimmed);
+            if (canonicalUid == null && !trimmed.isEmpty()) {
+                String key = normalizeBtechRoutingId(trimmed);
+                if (!key.isEmpty()) {
+                    canonicalUid = ANDROID_UID_PREFIX + key;
+                }
+            }
+            if (canonicalUid == null || canonicalUid.isEmpty()) {
+                Log.w(TAG, "injectChatCot: no UID for sender " + trimmed);
+                return;
+            }
+            String displayCallsign = canonicalUid.startsWith(ANDROID_UID_PREFIX)
+                    ? canonicalUid.substring(ANDROID_UID_PREFIX.length())
+                    : trimmed.toUpperCase();
             CotEvent event = CotBuilder.buildChatCot(
-                    senderUid, senderCallsign, message, chatRoom);
+                    canonicalUid, displayCallsign, message, chatRoom);
 
             if (event != null && event.isValid()) {
-                Log.d(TAG, "Injecting chat CoT from " + senderCallsign);
+                Log.d(TAG, "Injecting chat CoT from " + displayCallsign
+                        + " (uid=" + canonicalUid + ")");
                 dispatchCotEvent(event);
             }
         } catch (Exception e) {

@@ -6,6 +6,7 @@ import com.btechrelay.plugin.ax25.Ax25Frame;
 import com.btechrelay.plugin.ax25.AprsParser;
 import com.btechrelay.plugin.chat.ChatBridge;
 import com.btechrelay.plugin.cot.CotBridge;
+import com.btechrelay.plugin.util.CallsignUtil;
 import com.btechrelay.plugin.contacts.ContactTracker;
 import com.btechrelay.plugin.crypto.EncryptionManager;
 import com.btechrelay.plugin.protocol.PacketFragmenter;
@@ -160,6 +161,13 @@ public class PacketRouter {
                         // Also register a callsign→UID mapping for chat routing, since GeoChat
                         // destinations may appear as labels/rooms rather than explicit toUIDs.
                         cotBridge.registerBtechContactId(normalized, uid);
+                        // Radio chat packets truncate callsign (6-char AX.25 form, vowel-stripped).
+                        // Incoming chat uses that form (e.g. JNR) while GPS/contact use full CS (JUNIOR).
+                        String radioTrunc = CallsignUtil.toRadioCallsign(normalized);
+                        if (radioTrunc != null && !radioTrunc.isEmpty()
+                                && !radioTrunc.equalsIgnoreCase(normalized)) {
+                            cotBridge.registerBtechContactId(radioTrunc, uid);
+                        }
 
                     } catch (Exception e) {
                         android.util.Log.e("BTRelay.CONTACT", "Contact add failed", e);
