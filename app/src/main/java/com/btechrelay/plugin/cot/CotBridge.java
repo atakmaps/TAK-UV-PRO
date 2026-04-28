@@ -439,6 +439,11 @@ public class CotBridge {
                     || type.startsWith("u-");               // user-defined
             if (!shouldRelay) return;
 
+            // Don't relay our own injected radio events (avoid loops / chatter).
+            // Radio-injected contacts and events use ANDROID-* UIDs.
+            String uid = event.getUID();
+            if (uid != null && uid.startsWith("ANDROID-")) return;
+
             lastSaRelay = now;
             Log.d(TAG, "Relaying broadcast CoT to radio: type=" + type
                     + " uid=" + event.getUID());
