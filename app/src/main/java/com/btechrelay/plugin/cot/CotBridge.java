@@ -116,6 +116,22 @@ public class CotBridge {
         return uid != null && btechContactUids.contains(uid);
     }
 
+    private static final String ANDROID_UID_PREFIX = "ANDROID-";
+
+    /**
+     * ATAK GeoChat/direct destinations sometimes use the literal contact UID label
+     * (e.g. ANDROID-VETTE1); registration keys are typically the bare callsign
+     * (VETTE1). Normalizes for routing-map lookup.
+     */
+    private static String normalizeBtechRoutingId(String id) {
+        if (id == null) return "";
+        String key = id.trim().toUpperCase();
+        if (key.startsWith(ANDROID_UID_PREFIX)) {
+            key = key.substring(ANDROID_UID_PREFIX.length());
+        }
+        return key;
+    }
+
     /**
      * Resolve a chat destination label/callsign to a BTECH contact UID, if known.
      */
@@ -123,7 +139,33 @@ public class CotBridge {
         if (id == null) return null;
         String key = id.trim().toUpperCase();
         if (key.isEmpty()) return null;
-        return btechIdToUid.get(key);
+        String mapped = btechIdToUid.get(key);
+        if (mapped != null) return mapped;
+        String stripped = normalizeBtechRoutingId(id);
+        if (!stripped.isEmpty() && !stripped.equals(key)) {
+            mapped = btechIdToUid.get(stripped);
+            if (mapped != null) return mapped;
+        }
+        return null;
+    }
+
+    /**
+     * True if an outbound GeoChat/send intent targets a plugin-registered radio
+     * contact, using UID, chat-room label, or ATAK ANDROID-* display identifiers.
+     */
+    public boolean isBtechOutboundChatDestination(String uid, String chatroom) {
+        if (uid != null) {
+            String u = uid.trim();
+            if (!u.isEmpty() && isBtechContactUid(u)) return true;
+            String resolvedUid = resolveBtechUidForId(u);
+            if (resolvedUid != null && isBtechContactUid(resolvedUid)) return true;
+        }
+        if (chatroom != null && !chatroom.isEmpty()) {
+            if ("ALL CHAT ROOMS".equalsIgnoreCase(chatroom.trim())) return false;
+            String resolvedRm = resolveBtechUidForId(chatroom);
+            if (resolvedRm != null && isBtechContactUid(resolvedRm)) return true;
+        }
+        return false;
     }
 
     /**

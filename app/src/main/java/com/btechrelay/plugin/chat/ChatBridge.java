@@ -177,13 +177,21 @@ public class ChatBridge {
                 }
 
                 // Only relay when the destination is a plugin-created contact.
-                boolean shouldRelay = false;
-                if (cotBridge != null) {
-                    if (toUid != null && cotBridge.isBtechContactUid(toUid)) {
-                        shouldRelay = true;
-                    } else if (toUid != null) {
-                        String resolved = cotBridge.resolveBtechUidForId(toUid);
-                        shouldRelay = cotBridge.isBtechContactUid(resolved);
+                // SEND_MESSAGE extras vary by build; ANDROID-VETTE1 must match callsign VETTE1.
+                boolean shouldRelay =
+                        cotBridge != null && cotBridge.isBtechOutboundChatDestination(toUid,
+                        chatRoom);
+                if (!shouldRelay && cotBridge != null) {
+                    String[] fallback =
+                            {"destUID", "destinationUID", "recipientUID",
+                                    "recipient", "destination", "to",
+                                    "toCallsign"};
+                    for (String k : fallback) {
+                        String v = intent.getStringExtra(k);
+                        if (cotBridge.isBtechOutboundChatDestination(v, null)) {
+                            shouldRelay = true;
+                            break;
+                        }
                     }
                 }
                 if (!shouldRelay) return;
