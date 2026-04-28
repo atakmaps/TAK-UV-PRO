@@ -318,7 +318,7 @@ public class CotBridge {
             // Contact-targeted send: only relay when ATAK is sending to a
             // plugin-registered radio contact.
             boolean targetsBtechContact = false;
-            if (toUIDs != null && !toUIDs.isEmpty()) {
+            if (toUIDs != null && toUIDs.length > 0) {
                 for (String uid : toUIDs) {
                     if (uid != null && btechContactUids.contains(uid)) {
                         targetsBtechContact = true;
