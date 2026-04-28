@@ -333,8 +333,11 @@ public class CotBridge {
     /**
      * Inject a chat CoT event into ATAK.
      */
+    /**
+     * @param radioPacketMessageId BtechRelay wire id ({@literal >} 0 distinguishes duplicate ATAK merges); 0 = unknown
+     */
     public void injectChatCot(String senderCallsign, String message,
-                              String chatRoom) {
+                              String chatRoom, int radioPacketMessageId) {
         try {
             String trimmed = senderCallsign != null ? senderCallsign.trim() : "";
             // Align with GPS-registered contacts: AX.25 truncates sender (e.g. JUNIOR → JNR).
@@ -352,12 +355,15 @@ public class CotBridge {
             String displayCallsign = canonicalUid.startsWith(ANDROID_UID_PREFIX)
                     ? canonicalUid.substring(ANDROID_UID_PREFIX.length())
                     : trimmed.toUpperCase();
+            long uniq = (radioPacketMessageId != 0)
+                    ? (((long) radioPacketMessageId) & 0xffffffffL)
+                    : System.nanoTime();
             CotEvent event = CotBuilder.buildChatCot(
-                    canonicalUid, displayCallsign, message, chatRoom);
+                    canonicalUid, displayCallsign, message, chatRoom, uniq);
 
             if (event != null && event.isValid()) {
                 Log.d(TAG, "Injecting chat CoT from " + displayCallsign
-                        + " (uid=" + canonicalUid + ")");
+                        + " (uid=" + canonicalUid + " midpkt=" + radioPacketMessageId + ")");
                 dispatchCotEvent(event);
             }
         } catch (Exception e) {

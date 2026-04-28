@@ -238,7 +238,7 @@ public class PacketRouter {
             Log.d(TAG, "APRS message from " + msg.fromCallsign +
                     " to " + msg.toCallsign + ": " + msg.message);
             chatBridge.injectRadioMessage(msg.fromCallsign,
-                    msg.toCallsign, msg.message);
+                    msg.toCallsign, msg.message, 0);
             return;
         }
 
@@ -270,7 +270,7 @@ public class PacketRouter {
         String message = new String(msgBytes,
                 java.nio.charset.StandardCharsets.UTF_8);
 
-        Log.d(TAG, "Chat from " + sender + " [" + room + "]: " + message);
-        chatBridge.injectRadioMessage(sender, room, message);
+        Log.d(TAG, "Chat mid=" + messageId + " from " + sender + " [" + room + "]: " + message);
+        chatBridge.injectRadioMessage(sender, room, message, messageId);
     }
 }

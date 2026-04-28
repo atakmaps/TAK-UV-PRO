@@ -93,8 +93,11 @@ public class ChatBridge {
      * @param toCallsign   Destination (callsign or room name)
      * @param message      Message text
      */
+    /**
+     * @param radioPacketMessageId BtechRelay TYPE_CHAT payload id ({@code putInt}); 0 if unknown (APRS path).
+     */
     public void injectRadioMessage(String fromCallsign, String toCallsign,
-                                   String message) {
+                                   String message, int radioPacketMessageId) {
         if (cotBridge == null) {
             Log.w(TAG, "CotBridge not set — cannot inject chat");
             return;
@@ -112,10 +115,11 @@ public class ChatBridge {
             chatRoom = toCallsign.trim();
         }
 
-        Log.d(TAG, "Injecting radio message: "
+        Log.d(TAG, "Injecting radio message (mid=" + radioPacketMessageId + "): "
                 + fromCallsign + " → " + chatRoom + ": " + message);
 
-        cotBridge.injectChatCot(fromCallsign, message, chatRoom);
+        cotBridge.injectChatCot(fromCallsign, message, chatRoom,
+                radioPacketMessageId);
     }
 
     /**
