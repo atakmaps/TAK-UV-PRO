@@ -223,6 +223,33 @@ public class CotBridge {
         try {
             CotMapComponent.getInternalDispatcher().dispatch(event);
             Log.d(TAG, "Dispatched CoT event: " + event.getUID());
+
+            try {
+                com.atakmap.android.maps.MapItem item =
+                        com.atakmap.android.maps.MapView.getMapView()
+                                .getRootGroup()
+                                .deepFindUID(event.getUID());
+
+                if (item != null) {
+                    Log.d(TAG, "MARKER_DEBUG uid=" + item.getUID()
+                            + " title=" + item.getTitle()
+                            + " type=" + item.getType()
+                            + " callsign=" + item.getMetaString("callsign", "NULL")
+                            + " team=" + item.getMetaString("team", "NULL")
+                            + " labels_on=" + item.hasMetaValue("labels_on")
+                            + " hideLabel=" + item.hasMetaValue("hideLabel"));
+
+                    if (item instanceof com.atakmap.android.maps.Marker) {
+                        com.atakmap.android.maps.Marker m =
+                                (com.atakmap.android.maps.Marker) item;
+                        Log.d(TAG, "MARKER_DEBUG marker_class=true");
+                    }
+                } else {
+                    Log.d(TAG, "MARKER_DEBUG item not found uid=" + event.getUID());
+                }
+            } catch (Exception dbg) {
+                Log.e(TAG, "MARKER_DEBUG failed", dbg);
+            }
         } catch (Exception e) {
             Log.w(TAG, "Failed to dispatch via CotMapComponent, "
                     + "trying broadcast", e);

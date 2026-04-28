@@ -152,8 +152,8 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
             updateConnectionUI(false, null);
         }
 
-        // Set callsign from preferences
-        String callsign = SettingsFragment.getCallsign(pluginContext);
+        // Set callsign from ATAK self marker
+        String callsign = MapView.getMapView().getSelfMarker().getMetaString("callsign","UNKNOWN");
         if (callsignText != null) {
             callsignText.setText(callsign);
         }
@@ -563,17 +563,6 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
         layout.setOrientation(android.widget.LinearLayout.VERTICAL);
         layout.setPadding(48, 32, 48, 16);
 
-        // Callsign field
-        TextView labelCall = new TextView(ctx);
-        labelCall.setText("Callsign (max 6 chars)");
-        labelCall.setTextColor(0xFFAAAAAA);
-        layout.addView(labelCall);
-        EditText editCall = new EditText(ctx);
-        editCall.setText(prefs.getString(SettingsFragment.PREF_CALLSIGN,
-                SettingsFragment.DEFAULT_CALLSIGN));
-        editCall.setFilters(new android.text.InputFilter[]{
-                new android.text.InputFilter.LengthFilter(6)});
-        layout.addView(editCall);
 
         // Beacon interval field
         TextView labelBeacon = new TextView(ctx);
@@ -614,12 +603,6 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
                 .setView(scrollView)
                 .setPositiveButton("Save", (dialog, which) -> {
                     SharedPreferences.Editor editor = prefs.edit();
-
-                    String newCall = editCall.getText().toString().trim().toUpperCase();
-                    if (!newCall.isEmpty()) {
-                        editor.putString(SettingsFragment.PREF_CALLSIGN, newCall);
-                        if (callsignText != null) callsignText.setText(newCall);
-                    }
 
                     String newBeacon = editBeacon.getText().toString().trim();
                     if (!newBeacon.isEmpty()) {
@@ -663,7 +646,7 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
 
     private void sendPing() {
         if (cotBridge != null && btManager.isConnected()) {
-            String callsign = SettingsFragment.getCallsign(pluginContext);
+            String callsign = MapView.getMapView().getSelfMarker().getMetaString("callsign","UNKNOWN");
             try {
                 com.btechrelay.plugin.protocol.BtechRelayPacket packet =
                         com.btechrelay.plugin.protocol.BtechRelayPacket

@@ -126,40 +126,37 @@ public class PacketRouter {
                     contactTracker.updateContact(gps.callsign, gps.latitude,
                             gps.longitude, gps.altitude, gps.speed,
                             gps.course, gps.battery);
-                    
-            // === ATAK CONTACT REGISTRATION (CRITICAL FIX) ===
-            try {
-                com.atakmap.android.contact.Contacts contacts =
-                        com.atakmap.android.contact.Contacts.getInstance();
 
-                String normalized = gps.callsign.trim().toUpperCase();
-                String uid = "ANDROID-" + normalized;
+                    try {
+                        com.atakmap.android.contact.Contacts contacts =
+                                com.atakmap.android.contact.Contacts.getInstance();
 
-                com.atakmap.android.contact.IndividualContact c =
-                        new com.atakmap.android.contact.IndividualContact(
-                                normalized,
-                                uid
-                        );
+                        String normalized = gps.callsign.trim().toUpperCase();
+                        String uid = "ANDROID-" + normalized;
 
-// === ADD CONNECTOR (THIS MAKES IT SENDABLE) ===
-c.addConnector(new com.atakmap.android.contact.PluginConnector("BTECH_RELAY"));
-                c.addConnector(new com.atakmap.android.contact.IpConnector("BTECH_RELAY://" + uid));
+                        com.atakmap.android.contact.IndividualContact c =
+                                new com.atakmap.android.contact.IndividualContact(
+                                        normalized,
+                                        uid
+                                );
 
-// Optional: set as default connector
-com.atakmap.android.preference.AtakPreferences prefs =
-        new com.atakmap.android.preference.AtakPreferences(
-                com.atakmap.android.maps.MapView.getMapView().getContext());
+                        c.addConnector(new com.atakmap.android.contact.PluginConnector("BTECH_RELAY"));
+                        c.addConnector(new com.atakmap.android.contact.IpConnector("BTECH_RELAY://" + uid));
 
-prefs.set("contact.connector.default." + c.getUID(),
-        com.atakmap.android.contact.PluginConnector.CONNECTOR_TYPE);
+                        com.atakmap.android.preference.AtakPreferences prefs =
+                                new com.atakmap.android.preference.AtakPreferences(
+                                        com.atakmap.android.maps.MapView.getMapView().getContext());
 
-                contacts.addContact(c);
+                        prefs.set("contact.connector.default." + c.getUID(),
+                                com.atakmap.android.contact.PluginConnector.CONNECTOR_TYPE);
 
-            } catch (Exception e) {
-                android.util.Log.e("BTRelay.CONTACT", "Contact add failed", e);
-            }
+                        contacts.addContact(c);
 
-            cotBridge.injectPositionCot(gps.callsign, gps.latitude,
+                    } catch (Exception e) {
+                        android.util.Log.e("BTRelay.CONTACT", "Contact add failed", e);
+                    }
+
+                    cotBridge.injectPositionCot(gps.callsign, gps.latitude,
                             gps.longitude, gps.altitude, gps.speed,
                             gps.course);
                 }

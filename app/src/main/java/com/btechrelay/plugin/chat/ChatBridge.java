@@ -37,7 +37,7 @@ public class ChatBridge {
 
     /** ATAK broadcasts this when a GeoChat message is sent */
     private static final String ACTION_CHAT_SEND =
-            "com.atakmap.android.maps.CHAT_SEND";
+            "com.atakmap.android.chat.SEND_MESSAGE";
 
     private final Context pluginContext;
     private final MapView mapView;
@@ -123,7 +123,7 @@ public class ChatBridge {
         // Register for GeoChat CoT events
         AtakBroadcast.DocumentedIntentFilter filter =
                 new AtakBroadcast.DocumentedIntentFilter();
-        filter.addAction(ACTION_CHAT_SEND);
+        filter.addAction("com.atakmap.android.maps.COT_PLACED");
         AtakBroadcast.getInstance().registerReceiver(chatReceiver, filter);
 
         Log.d(TAG, "Outgoing chat relay started");
@@ -173,6 +173,7 @@ public class ChatBridge {
 
             Log.d(TAG, "Relaying outgoing chat to radio: " + message);
             sendChatOverRadio(localCallsign, chatRoom, message);
+            android.util.Log.d(TAG, "🔥 FORCED RADIO TX (DIRECT CALL)");
 
         } catch (Exception e) {
             Log.e(TAG, "Error handling outgoing chat", e);

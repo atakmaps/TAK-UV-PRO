@@ -22,7 +22,6 @@ import com.atakmap.android.preference.PluginPreferenceFragment;
 public class SettingsFragment extends PluginPreferenceFragment
         implements SharedPreferences.OnSharedPreferenceChangeListener {
 
-    public static final String PREF_CALLSIGN = "btechrelay_callsign";
     public static final String PREF_BEACON_INTERVAL = "btechrelay_beacon_interval";
     public static final String PREF_RELAY_CHAT = "btechrelay_relay_chat";
     public static final String PREF_RELAY_COT = "btechrelay_relay_cot";
@@ -31,7 +30,6 @@ public class SettingsFragment extends PluginPreferenceFragment
     public static final String PREF_ENCRYPTION_ENABLED = "btechrelay_encryption_enabled";
     public static final String PREF_ENCRYPTION_PASSPHRASE = "btechrelay_encryption_passphrase";
 
-    public static final String DEFAULT_CALLSIGN = "OPENRL";
     public static final String DEFAULT_BEACON_INTERVAL = "60";
     public static final boolean DEFAULT_RELAY_CHAT = true;
     public static final boolean DEFAULT_RELAY_COT = false;
@@ -89,12 +87,6 @@ public class SettingsFragment extends PluginPreferenceFragment
         SharedPreferences prefs =
                 getPreferenceManager().getSharedPreferences();
 
-        Preference callsignPref = findPreference(PREF_CALLSIGN);
-        if (callsignPref != null) {
-            String cs = prefs.getString(PREF_CALLSIGN, DEFAULT_CALLSIGN);
-            callsignPref.setSummary("Current: " + cs);
-        }
-
         Preference beaconPref = findPreference(PREF_BEACON_INTERVAL);
         if (beaconPref != null) {
             String interval = prefs.getString(
@@ -130,8 +122,14 @@ public class SettingsFragment extends PluginPreferenceFragment
     }
 
     public static String getCallsign(Context context) {
-        return getPrefs(context)
-                .getString(PREF_CALLSIGN, DEFAULT_CALLSIGN);
+        try {
+            com.atakmap.android.maps.MapView mv = com.atakmap.android.maps.MapView.getMapView();
+            if (mv != null && mv.getSelfMarker() != null) {
+                return mv.getSelfMarker().getMetaString("callsign", "UNKNOWN");
+            }
+        } catch (Exception e) {
+        }
+        return "UNKNOWN";
     }
 
     public static int getBeaconIntervalSec(Context context) {

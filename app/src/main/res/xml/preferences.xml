@@ -5,13 +5,6 @@
         android:key="btechrelay_cat_radio"
         android:title="Radio Settings">
 
-        <com.atakmap.android.gui.PanEditTextPreference
-            android:key="btechrelay_callsign"
-            android:title="Callsign"
-            android:summary="Your radio callsign (max 6 chars)"
-            android:defaultValue="OPENRL"
-            android:dialogTitle="Enter Callsign"
-            android:maxLength="6" />
 
         <com.atakmap.android.gui.PanListPreference
             android:key="btechrelay_beacon_interval"
