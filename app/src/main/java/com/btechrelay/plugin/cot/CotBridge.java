@@ -516,25 +516,38 @@ public class CotBridge {
             if (btManager == null || !btManager.isConnected()) return;
             if (event == null) return;
 
+            String type = event.getType();
+
+            // Outbound GeoChat hits PreSend BEFORE commo's contact table; CommsLogger only
+            // fires after a successful core send — don't rely on logger for plugin contacts.
+            if ("b-t-f".equals(type)) {
+                Log.d(TAG, "PreSend GeoChat uid=" + event.getUID()
+                        + " toUIDs="
+                        + (toUIDs == null ? "null"
+                        : java.util.Arrays.toString(toUIDs))
+                        + " btechUids=" + btechContactUids.size());
+            }
+
             // Contact-targeted send: only relay when ATAK is sending to a
             // plugin-registered radio contact.
             boolean targetsBtechContact = false;
             if (toUIDs != null && toUIDs.length > 0) {
                 for (String uid : toUIDs) {
-                    if (uid != null && btechContactUids.contains(uid)) {
+                    if (uid != null && btechContactUids.contains(uid.trim())) {
                         targetsBtechContact = true;
                         break;
                     }
                 }
             }
 
-            String type = event.getType();
             if (type == null) return;
 
             // GeoChat (b-t-f) often lacks reliable toUID[] in PreSendProcessor; infer
             // destination from CoT (__chat/chatgrp/chatroom/remarks) like SEND_MESSAGE/COT_PLACED.
             if (!targetsBtechContact && "b-t-f".equals(type)) {
-                if (shouldRelayGeoChatToRadio(event)) {
+                boolean geoRelay = shouldRelayGeoChatToRadio(event);
+                Log.d(TAG, "GeoChat shouldRelayGeoChatToRadio=" + geoRelay);
+                if (geoRelay) {
                     targetsBtechContact = true;
                     Log.d(TAG, "GeoChat to BTECH contact via CoT routing (weak/missing toUIDs)");
                 }
@@ -583,11 +596,13 @@ public class CotBridge {
     }
 
     /**
-     * GeoChatService dispatches outbound chat via CotMap external path; capture here.
+     * Duplicate path after core comms successfully accepts the send — often skipped for
+     * plugin-native contacts ("unknown contact" path). PreSend geo hook is authoritative.
      */
     private void maybeRelayGeoChatFromCommsLogger(CotEvent event) {
         if (btManager == null || !btManager.isConnected()) return;
         if (event == null || !"b-t-f".equals(event.getType())) return;
+        Log.d(TAG, "CommsLogger logSend b-t-f uid=" + event.getUID());
         if (!shouldRelayGeoChatToRadio(event)) return;
 
         String uid = event.getUID();
