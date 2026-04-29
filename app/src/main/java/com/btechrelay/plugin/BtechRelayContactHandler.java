@@ -111,6 +111,8 @@ public class BtechRelayContactHandler extends
             ChatManagerMapComponent.getInstance().openConversation(
                     (IndividualContact) contact, true);
 
+            // User is viewing this contact; clear unread badge.
+            clearUnread(contactUID);
             Log.i("BTRelay", "Contact selected for chat: " + contactUID);
         }
 
@@ -127,9 +129,14 @@ public class BtechRelayContactHandler extends
 
         if (feature == ContactConnectorManager.ConnectorFeature.NotificationCount) {
             // Avoid double-count: ATAK may query multiple connectors for the same UID.
-            if (connectorAddress == null) return 0;
+            if (connectorAddress == null) {
+                Log.i("BTRelay.Handler", "NotificationCount uid=" + contactUID + " addr=null -> 0");
+                return 0;
+            }
             Set<String> keys = unreadKeysByUid.get(contactUID != null ? contactUID.trim() : "");
-            return keys == null ? 0 : keys.size();
+            int n = keys == null ? 0 : keys.size();
+            Log.i("BTRelay.Handler", "NotificationCount uid=" + contactUID + " addr=" + connectorAddress + " -> " + n);
+            return n;
         }
 
         return null;
