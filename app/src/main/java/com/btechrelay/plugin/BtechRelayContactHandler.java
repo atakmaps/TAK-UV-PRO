@@ -12,7 +12,6 @@ import com.atakmap.android.contact.PluginConnector;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 
 import java.util.Map;
-import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -35,14 +34,35 @@ public class BtechRelayContactHandler extends
     private static final Map<String, Set<Integer>> seenInboundMidsByUid =
             new ConcurrentHashMap<>();
 
+    /** Last-message fingerprint per UID to suppress RF retransmits with new mids. */
+    private static final long DUPLICATE_TEXT_WINDOW_MS = 15_000L;
+    private static final Map<String, String> lastMsgFingerprintByUid = new ConcurrentHashMap<>();
+    private static final Map<String, Long> lastMsgFingerprintMsByUid = new ConcurrentHashMap<>();
+
     public BtechRelayContactHandler(Context pluginContext) {
         this.pluginContext = pluginContext;
     }
 
-    public static void incrementUnreadOnce(String contactUid, int radioPacketMessageId) {
+    public static void incrementUnreadOnce(String contactUid, int radioPacketMessageId,
+                                          String messageText) {
         if (contactUid == null) return;
         String uid = contactUid.trim();
         if (uid.isEmpty()) return;
+
+        if (messageText != null && !messageText.isEmpty()) {
+            // Some radios re-send the same payload but regenerate/alter the mid.
+            // ATAK may de-duplicate display; keep our badge in sync by suppressing
+            // duplicates within a small time window.
+            String fp = Integer.toHexString(messageText.hashCode());
+            long now = System.currentTimeMillis();
+            String last = lastMsgFingerprintByUid.get(uid);
+            Long lastMs = lastMsgFingerprintMsByUid.get(uid);
+            if (fp.equals(last) && lastMs != null && (now - lastMs) < DUPLICATE_TEXT_WINDOW_MS) {
+                return;
+            }
+            lastMsgFingerprintByUid.put(uid, fp);
+            lastMsgFingerprintMsByUid.put(uid, now);
+        }
 
         if (radioPacketMessageId != 0) {
             Set<Integer> seen = seenInboundMidsByUid.computeIfAbsent(uid,
@@ -81,6 +101,8 @@ public class BtechRelayContactHandler extends
         if (uid.isEmpty()) return;
         unreadByUid.remove(uid);
         seenInboundMidsByUid.remove(uid);
+        lastMsgFingerprintByUid.remove(uid);
+        lastMsgFingerprintMsByUid.remove(uid);
         try {
             Contacts.getInstance().updateTotalUnreadCount();
         } catch (Exception ignored) {

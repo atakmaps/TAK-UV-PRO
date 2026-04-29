@@ -61,6 +61,7 @@ public class ChatBridge {
     private boolean relayOutgoing = true;
 
     private BroadcastReceiver chatReceiver;
+    private BroadcastReceiver chatMarkReadReceiver;
 
     public ChatBridge(Context pluginContext, MapView mapView) {
         this.pluginContext = pluginContext;
@@ -133,7 +134,8 @@ public class ChatBridge {
         // Update Contacts red-dot badge: ATAK queries NotificationCount from our
         // contact handler; keep it in sync for incoming plugin-delivered messages.
         if (chatRoom != null && chatRoom.startsWith("ANDROID-")) {
-            BtechRelayContactHandler.incrementUnreadOnce(chatRoom, radioPacketMessageId);
+            BtechRelayContactHandler.incrementUnreadOnce(chatRoom, radioPacketMessageId,
+                    message);
         }
 
         cotBridge.injectChatCot(fromCallsign, message, chatRoom,
@@ -161,6 +163,31 @@ public class ChatBridge {
         filter.addAction(ACTION_CHAT_SEND);
         filter.addAction(ACTION_PLUGIN_CONTACT_GEOCHAT_SEND);
         AtakBroadcast.getInstance().registerReceiver(chatReceiver, filter);
+
+        // Clear plugin unread counters when ATAK marks a message read.
+        // ATAK fires this broadcast when a user reads a chat line.
+        try {
+            chatMarkReadReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    if (intent == null) return;
+                    if (!"com.atakmap.chat.markmessageread".equals(intent.getAction())) return;
+                    android.os.Bundle b = intent.getBundleExtra("chat_bundle");
+                    if (b == null) return;
+                    String convo = b.getString("conversationId");
+                    if (convo == null || convo.isEmpty()) return;
+                    // Our DM threads use ANDROID-* conversation ids for plugin contacts.
+                    if (convo.startsWith("ANDROID-")) {
+                        BtechRelayContactHandler.clearUnread(convo);
+                    }
+                }
+            };
+            AtakBroadcast.DocumentedIntentFilter markRead =
+                    new AtakBroadcast.DocumentedIntentFilter();
+            markRead.addAction("com.atakmap.chat.markmessageread");
+            AtakBroadcast.getInstance().registerReceiver(chatMarkReadReceiver, markRead);
+        } catch (Exception ignored) {
+        }
 
         Log.d(TAG, "Outgoing chat relay started");
     }
@@ -386,6 +413,15 @@ public class ChatBridge {
                 Log.w(TAG, "Error unregistering chat receiver", e);
             }
             chatReceiver = null;
+        }
+        if (chatMarkReadReceiver != null) {
+            try {
+                AtakBroadcast.getInstance()
+                        .unregisterReceiver(chatMarkReadReceiver);
+            } catch (Exception e) {
+                Log.w(TAG, "Error unregistering mark-read receiver", e);
+            }
+            chatMarkReadReceiver = null;
         }
         Log.d(TAG, "ChatBridge disposed");
     }
