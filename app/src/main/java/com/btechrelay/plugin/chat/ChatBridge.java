@@ -140,8 +140,17 @@ public class ChatBridge {
         Log.d(TAG, "Injecting radio message (mid=" + radioPacketMessageId + "): "
                 + fromCallsign + " → " + chatRoom + ": " + message);
 
-        // Do not maintain a parallel unread counter for GeoChat: since we inject into ATAK's
-        // native GeoChat pipeline, ATAK's own unread tracking should drive badges.
+        // Maintain a plugin unread counter for Contacts icon badge.
+        // (Native GeoChat unread tracking is not reliably reflected for plugin contacts on all builds.)
+        if (chatRoom != null && chatRoom.startsWith("ANDROID-")) {
+            String open = openConversationId;
+            if (open != null && open.equals(chatRoom)) {
+                // Conversation is open; treat as already-seen.
+                BtechRelayContactHandler.clearUnread(chatRoom);
+            } else {
+                BtechRelayContactHandler.incrementUnreadOnce(chatRoom, radioPacketMessageId, message);
+            }
+        }
 
         cotBridge.injectChatCot(fromCallsign, message, chatRoom,
                 radioPacketMessageId);

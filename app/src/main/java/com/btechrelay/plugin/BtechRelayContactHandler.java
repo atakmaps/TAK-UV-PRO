@@ -11,7 +11,6 @@ import com.atakmap.android.contact.IndividualContact;
 import com.atakmap.android.contact.PluginConnector;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 
-import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -22,17 +21,65 @@ public class BtechRelayContactHandler extends
     private final Context pluginContext;
 
     /**
-     * ATAK already tracks unread GeoChat state via its internal ChatDatabase / Contacts
-     * system when we inject valid GeoChat CoT. Returning our own NotificationCount
-     * causes double-counting (badge shows 2 when ChatDatabase already counts 1).
+     * Unread counter store for plugin contacts. ATAK queries this via
+     * {@link #getFeature} with {@code ConnectorFeature.NotificationCount} to drive UI badges.
+     *
+     * NOTE: ATAK may query NotificationCount for multiple connectors for the same UID
+     * (e.g. plugin connector + null/default). Return a count only for the plugin connector
+     * address to avoid double-counting in the UI.
      */
+    private static final int MAX_UNREAD_KEYS_PER_UID = 128;
+    private static final Map<String, Set<String>> unreadKeysByUid = new ConcurrentHashMap<>();
 
     public BtechRelayContactHandler(Context pluginContext) {
         this.pluginContext = pluginContext;
     }
 
+    public static void incrementUnreadOnce(String contactUid, int radioPacketMessageId,
+                                           String messageText) {
+        if (contactUid == null) return;
+        String uid = contactUid.trim();
+        if (uid.isEmpty()) return;
+
+        String key;
+        if (radioPacketMessageId != 0) {
+            key = "mid:" + radioPacketMessageId;
+        } else if (messageText != null && !messageText.isEmpty()) {
+            key = "fp:" + Integer.toHexString(messageText.hashCode());
+        } else {
+            key = "t:" + System.currentTimeMillis();
+        }
+
+        Set<String> keys = unreadKeysByUid.computeIfAbsent(uid,
+                k -> ConcurrentHashMap.newKeySet());
+        keys.add(key);
+        if (keys.size() > MAX_UNREAD_KEYS_PER_UID) {
+            keys.clear();
+            keys.add(key);
+        }
+        try {
+            Contacts.getInstance().updateTotalUnreadCount();
+        } catch (Exception ignored) {
+        }
+    }
+
+    public static void clearUnread(String contactUid) {
+        if (contactUid == null) return;
+        String uid = contactUid.trim();
+        if (uid.isEmpty()) return;
+        unreadKeysByUid.remove(uid);
+        try {
+            Contacts.getInstance().updateTotalUnreadCount();
+        } catch (Exception ignored) {
+        }
+    }
+
     public static void clearAllUnread() {
-        // no-op: rely on ATAK native unread tracking
+        unreadKeysByUid.clear();
+        try {
+            Contacts.getInstance().updateTotalUnreadCount();
+        } catch (Exception ignored) {
+        }
     }
 
     @Override
@@ -79,8 +126,10 @@ public class BtechRelayContactHandler extends
                 + " uid=" + contactUID + " address=" + connectorAddress);
 
         if (feature == ContactConnectorManager.ConnectorFeature.NotificationCount) {
-            // Let ATAK's native chat system drive unread counts for injected GeoChat.
-            return null;
+            // Avoid double-count: ATAK may query multiple connectors for the same UID.
+            if (connectorAddress == null) return 0;
+            Set<String> keys = unreadKeysByUid.get(contactUID != null ? contactUID.trim() : "");
+            return keys == null ? 0 : keys.size();
         }
 
         return null;
