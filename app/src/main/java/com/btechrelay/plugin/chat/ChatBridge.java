@@ -140,18 +140,8 @@ public class ChatBridge {
         Log.d(TAG, "Injecting radio message (mid=" + radioPacketMessageId + "): "
                 + fromCallsign + " → " + chatRoom + ": " + message);
 
-        // Update Contacts red-dot badge: ATAK queries NotificationCount from our
-        // contact handler; keep it in sync for incoming plugin-delivered messages.
-        if (chatRoom != null && chatRoom.startsWith("ANDROID-")) {
-            String open = openConversationId;
-            if (open != null && open.equals(chatRoom)) {
-                // Conversation is open; treat as already-seen.
-                BtechRelayContactHandler.clearUnread(chatRoom);
-            } else {
-                BtechRelayContactHandler.incrementUnreadOnce(chatRoom, radioPacketMessageId,
-                        message);
-            }
-        }
+        // Do not maintain a parallel unread counter for GeoChat: since we inject into ATAK's
+        // native GeoChat pipeline, ATAK's own unread tracking should drive badges.
 
         cotBridge.injectChatCot(fromCallsign, message, chatRoom,
                 radioPacketMessageId);
@@ -221,31 +211,6 @@ public class ChatBridge {
             closedF.addAction("com.atakmap.chat.chatroom_closed");
             closedF.addAction("CHAT_ROOM_DROPDOWN_CLOSED");
             AtakBroadcast.getInstance().registerReceiver(chatClosedReceiver, closedF);
-        } catch (Exception ignored) {
-        }
-
-        // Clear plugin unread counters when ATAK marks a message read.
-        // ATAK fires this broadcast when a user reads a chat line.
-        try {
-            chatMarkReadReceiver = new BroadcastReceiver() {
-                @Override
-                public void onReceive(Context context, Intent intent) {
-                    if (intent == null) return;
-                    if (!"com.atakmap.chat.markmessageread".equals(intent.getAction())) return;
-                    android.os.Bundle b = intent.getBundleExtra("chat_bundle");
-                    if (b == null) return;
-                    String convo = b.getString("conversationId");
-                    if (convo == null || convo.isEmpty()) return;
-                    // Our DM threads use ANDROID-* conversation ids for plugin contacts.
-                    if (convo.startsWith("ANDROID-")) {
-                        BtechRelayContactHandler.clearUnread(convo);
-                    }
-                }
-            };
-            AtakBroadcast.DocumentedIntentFilter markRead =
-                    new AtakBroadcast.DocumentedIntentFilter();
-            markRead.addAction("com.atakmap.chat.markmessageread");
-            AtakBroadcast.getInstance().registerReceiver(chatMarkReadReceiver, markRead);
         } catch (Exception ignored) {
         }
 
