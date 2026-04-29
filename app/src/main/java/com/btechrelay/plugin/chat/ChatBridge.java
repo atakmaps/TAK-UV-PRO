@@ -16,6 +16,7 @@ import com.btechrelay.plugin.bluetooth.BtConnectionManager;
 import com.btechrelay.plugin.cot.CotBridge;
 import com.btechrelay.plugin.crypto.EncryptionManager;
 import com.btechrelay.plugin.protocol.BtechRelayPacket;
+import com.btechrelay.plugin.BtechRelayContactHandler;
 
 /**
  * Bridges ATAK GeoChat messages with the radio link.
@@ -100,6 +101,7 @@ public class ChatBridge {
             Log.w(TAG, "CotBridge not set — cannot inject chat");
             return;
         }
+        if (message == null || message.isEmpty()) return;
 
         // Determine chat room — if destination is a specific callsign,
         // use direct chat. Otherwise use broadcast.
@@ -127,6 +129,12 @@ public class ChatBridge {
 
         Log.d(TAG, "Injecting radio message (mid=" + radioPacketMessageId + "): "
                 + fromCallsign + " → " + chatRoom + ": " + message);
+
+        // Update Contacts red-dot badge: ATAK queries NotificationCount from our
+        // contact handler; keep it in sync for incoming plugin-delivered messages.
+        if (chatRoom != null && chatRoom.startsWith("ANDROID-")) {
+            BtechRelayContactHandler.incrementUnread(chatRoom);
+        }
 
         cotBridge.injectChatCot(fromCallsign, message, chatRoom,
                 radioPacketMessageId);
