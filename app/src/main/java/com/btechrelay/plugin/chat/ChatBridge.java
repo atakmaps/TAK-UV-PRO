@@ -133,7 +133,7 @@ public class ChatBridge {
         // Update Contacts red-dot badge: ATAK queries NotificationCount from our
         // contact handler; keep it in sync for incoming plugin-delivered messages.
         if (chatRoom != null && chatRoom.startsWith("ANDROID-")) {
-            BtechRelayContactHandler.incrementUnread(chatRoom);
+            BtechRelayContactHandler.incrementUnreadOnce(chatRoom, radioPacketMessageId);
         }
 
         cotBridge.injectChatCot(fromCallsign, message, chatRoom,

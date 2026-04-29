@@ -12,6 +12,8 @@ import com.atakmap.android.contact.PluginConnector;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class BtechRelayContactHandler extends
@@ -25,8 +27,41 @@ public class BtechRelayContactHandler extends
      */
     private static final Map<String, Integer> unreadByUid = new ConcurrentHashMap<>();
 
+    /**
+     * Dedupe inbound message ids per contact. Radio links can legitimately retransmit;
+     * ATAK may dedupe display while our simple counter would double-increment.
+     */
+    private static final int MAX_SEEN_MIDS_PER_UID = 128;
+    private static final Map<String, Set<Integer>> seenInboundMidsByUid =
+            new ConcurrentHashMap<>();
+
     public BtechRelayContactHandler(Context pluginContext) {
         this.pluginContext = pluginContext;
+    }
+
+    public static void incrementUnreadOnce(String contactUid, int radioPacketMessageId) {
+        if (contactUid == null) return;
+        String uid = contactUid.trim();
+        if (uid.isEmpty()) return;
+
+        if (radioPacketMessageId != 0) {
+            Set<Integer> seen = seenInboundMidsByUid.computeIfAbsent(uid,
+                    k -> ConcurrentHashMap.newKeySet());
+            if (!seen.add(radioPacketMessageId)) {
+                return; // already counted this wire message id for this contact
+            }
+            // Keep memory bounded in long-running sessions.
+            if (seen.size() > MAX_SEEN_MIDS_PER_UID) {
+                seen.clear();
+                seen.add(radioPacketMessageId);
+            }
+        }
+
+        unreadByUid.merge(uid, 1, Integer::sum);
+        try {
+            Contacts.getInstance().updateTotalUnreadCount();
+        } catch (Exception ignored) {
+        }
     }
 
     public static void incrementUnread(String contactUid) {
@@ -45,6 +80,7 @@ public class BtechRelayContactHandler extends
         String uid = contactUid.trim();
         if (uid.isEmpty()) return;
         unreadByUid.remove(uid);
+        seenInboundMidsByUid.remove(uid);
         try {
             Contacts.getInstance().updateTotalUnreadCount();
         } catch (Exception ignored) {
