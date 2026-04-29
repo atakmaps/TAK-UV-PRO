@@ -62,6 +62,15 @@ public class ChatBridge {
 
     private BroadcastReceiver chatReceiver;
     private BroadcastReceiver chatMarkReadReceiver;
+    private BroadcastReceiver chatOpenReceiver;
+    private BroadcastReceiver chatClosedReceiver;
+
+    /**
+     * Track the currently-open GeoChat conversation (if any). If the conversation is open,
+     * inbound messages should not increment the contacts badge because the user is already
+     * viewing the chat.
+     */
+    private volatile String openConversationId;
 
     public ChatBridge(Context pluginContext, MapView mapView) {
         this.pluginContext = pluginContext;
@@ -134,8 +143,14 @@ public class ChatBridge {
         // Update Contacts red-dot badge: ATAK queries NotificationCount from our
         // contact handler; keep it in sync for incoming plugin-delivered messages.
         if (chatRoom != null && chatRoom.startsWith("ANDROID-")) {
-            BtechRelayContactHandler.incrementUnreadOnce(chatRoom, radioPacketMessageId,
-                    message);
+            String open = openConversationId;
+            if (open != null && open.equals(chatRoom)) {
+                // Conversation is open; treat as already-seen.
+                BtechRelayContactHandler.clearUnread(chatRoom);
+            } else {
+                BtechRelayContactHandler.incrementUnreadOnce(chatRoom, radioPacketMessageId,
+                        message);
+            }
         }
 
         cotBridge.injectChatCot(fromCallsign, message, chatRoom,
@@ -163,6 +178,51 @@ public class ChatBridge {
         filter.addAction(ACTION_CHAT_SEND);
         filter.addAction(ACTION_PLUGIN_CONTACT_GEOCHAT_SEND);
         AtakBroadcast.getInstance().registerReceiver(chatReceiver, filter);
+
+        // Track currently open GeoChat conversation to suppress unread badge increments when
+        // the user is actively viewing that conversation.
+        try {
+            chatOpenReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    if (intent == null) return;
+                    if (!"com.atakmap.android.OPEN_GEOCHAT".equals(intent.getAction())) return;
+                    String convo = intent.getStringExtra("conversationId");
+                    if (convo == null || convo.isEmpty()) {
+                        // Some builds use "chatroom" / "id" instead.
+                        convo = intent.getStringExtra("chatroom");
+                    }
+                    if (convo == null || convo.isEmpty()) {
+                        convo = intent.getStringExtra("id");
+                    }
+                    if (convo != null && !convo.isEmpty()) {
+                        openConversationId = convo;
+                    }
+                }
+            };
+            AtakBroadcast.DocumentedIntentFilter openF =
+                    new AtakBroadcast.DocumentedIntentFilter();
+            openF.addAction("com.atakmap.android.OPEN_GEOCHAT");
+            AtakBroadcast.getInstance().registerReceiver(chatOpenReceiver, openF);
+        } catch (Exception ignored) {
+        }
+
+        try {
+            chatClosedReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    if (intent == null) return;
+                    if (!"com.atakmap.chat.chatroom_closed".equals(intent.getAction())) return;
+                    openConversationId = null;
+                }
+            };
+            AtakBroadcast.DocumentedIntentFilter closedF =
+                    new AtakBroadcast.DocumentedIntentFilter();
+            closedF.addAction("com.atakmap.chat.chatroom_closed");
+            closedF.addAction("CHAT_ROOM_DROPDOWN_CLOSED");
+            AtakBroadcast.getInstance().registerReceiver(chatClosedReceiver, closedF);
+        } catch (Exception ignored) {
+        }
 
         // Clear plugin unread counters when ATAK marks a message read.
         // ATAK fires this broadcast when a user reads a chat line.
@@ -422,6 +482,24 @@ public class ChatBridge {
                 Log.w(TAG, "Error unregistering mark-read receiver", e);
             }
             chatMarkReadReceiver = null;
+        }
+        if (chatOpenReceiver != null) {
+            try {
+                AtakBroadcast.getInstance()
+                        .unregisterReceiver(chatOpenReceiver);
+            } catch (Exception e) {
+                Log.w(TAG, "Error unregistering open-chat receiver", e);
+            }
+            chatOpenReceiver = null;
+        }
+        if (chatClosedReceiver != null) {
+            try {
+                AtakBroadcast.getInstance()
+                        .unregisterReceiver(chatClosedReceiver);
+            } catch (Exception e) {
+                Log.w(TAG, "Error unregistering chat-closed receiver", e);
+            }
+            chatClosedReceiver = null;
         }
         Log.d(TAG, "ChatBridge disposed");
     }
