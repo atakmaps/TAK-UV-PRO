@@ -11,6 +11,7 @@ import com.atakmap.android.contact.IndividualContact;
 import com.atakmap.android.contact.PluginConnector;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -24,7 +25,8 @@ public class BtechRelayContactHandler extends
      * Minimal unread counter store for plugin contacts. ATAK queries this via
      * {@link #getFeature} with {@code ConnectorFeature.NotificationCount} to drive UI badges.
      */
-    private static final Map<String, Integer> unreadByUid = new ConcurrentHashMap<>();
+    private static final int MAX_UNREAD_KEYS_PER_UID = 128;
+    private static final Map<String, Set<String>> unreadKeysByUid = new ConcurrentHashMap<>();
 
     /**
      * Dedupe inbound message ids per contact. Radio links can legitimately retransmit;
@@ -44,10 +46,13 @@ public class BtechRelayContactHandler extends
     }
 
     public static void incrementUnreadOnce(String contactUid, int radioPacketMessageId,
-                                          String messageText) {
+                                           String messageText) {
         if (contactUid == null) return;
         String uid = contactUid.trim();
         if (uid.isEmpty()) return;
+
+        // Use stable keys so we can count unique unread items instead of incrementing blindly.
+        String unreadKey = null;
 
         if (messageText != null && !messageText.isEmpty()) {
             // Some radios re-send the same payload but regenerate/alter the mid.
@@ -62,6 +67,7 @@ public class BtechRelayContactHandler extends
             }
             lastMsgFingerprintByUid.put(uid, fp);
             lastMsgFingerprintMsByUid.put(uid, now);
+            unreadKey = "fp:" + fp;
         }
 
         if (radioPacketMessageId != 0) {
@@ -75,9 +81,21 @@ public class BtechRelayContactHandler extends
                 seen.clear();
                 seen.add(radioPacketMessageId);
             }
+            unreadKey = "mid:" + radioPacketMessageId;
         }
 
-        unreadByUid.merge(uid, 1, Integer::sum);
+        if (unreadKey == null) {
+            // Fallback (should be rare): treat as one unread item.
+            unreadKey = "t:" + System.currentTimeMillis();
+        }
+
+        Set<String> keys = unreadKeysByUid.computeIfAbsent(uid,
+                k -> ConcurrentHashMap.newKeySet());
+        keys.add(unreadKey);
+        if (keys.size() > MAX_UNREAD_KEYS_PER_UID) {
+            keys.clear();
+            keys.add(unreadKey);
+        }
         try {
             Contacts.getInstance().updateTotalUnreadCount();
         } catch (Exception ignored) {
@@ -88,7 +106,9 @@ public class BtechRelayContactHandler extends
         if (contactUid == null) return;
         String uid = contactUid.trim();
         if (uid.isEmpty()) return;
-        unreadByUid.merge(uid, 1, Integer::sum);
+        Set<String> keys = unreadKeysByUid.computeIfAbsent(uid,
+                k -> ConcurrentHashMap.newKeySet());
+        keys.add("t:" + System.currentTimeMillis());
         try {
             Contacts.getInstance().updateTotalUnreadCount();
         } catch (Exception ignored) {
@@ -99,7 +119,7 @@ public class BtechRelayContactHandler extends
         if (contactUid == null) return;
         String uid = contactUid.trim();
         if (uid.isEmpty()) return;
-        unreadByUid.remove(uid);
+        unreadKeysByUid.remove(uid);
         seenInboundMidsByUid.remove(uid);
         lastMsgFingerprintByUid.remove(uid);
         lastMsgFingerprintMsByUid.remove(uid);
@@ -111,8 +131,8 @@ public class BtechRelayContactHandler extends
 
     private static int getUnread(String contactUid) {
         if (contactUid == null) return 0;
-        Integer v = unreadByUid.get(contactUid.trim());
-        return v == null ? 0 : v;
+        Set<String> keys = unreadKeysByUid.get(contactUid.trim());
+        return keys == null ? 0 : keys.size();
     }
 
     @Override
