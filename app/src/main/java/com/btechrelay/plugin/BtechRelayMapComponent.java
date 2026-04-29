@@ -61,6 +61,11 @@ public class BtechRelayMapComponent extends DropDownMapComponent {
         this.mapView = view;
 
         Log.i(TAG, "BTECH Relay plugin initializing...");
+        // Defensive: unread badge state is process-local; start clean each time the plugin is loaded.
+        try {
+            BtechRelayContactHandler.clearAllUnread();
+        } catch (Exception ignored) {
+        }
 
         // Read user preferences
         String callsign = "UNKNOWN";

@@ -129,6 +129,17 @@ public class BtechRelayContactHandler extends
         }
     }
 
+    public static void clearAllUnread() {
+        unreadKeysByUid.clear();
+        seenInboundMidsByUid.clear();
+        lastMsgFingerprintByUid.clear();
+        lastMsgFingerprintMsByUid.clear();
+        try {
+            Contacts.getInstance().updateTotalUnreadCount();
+        } catch (Exception ignored) {
+        }
+    }
+
     private static int getUnread(String contactUid) {
         if (contactUid == null) return 0;
         Set<String> keys = unreadKeysByUid.get(contactUid.trim());
@@ -181,7 +192,9 @@ public class BtechRelayContactHandler extends
 
         if (feature == ContactConnectorManager.ConnectorFeature.NotificationCount) {
             // Integer count; ATAK uses this to show red-dot badges in Contacts UI.
-            return getUnread(contactUID);
+            int n = getUnread(contactUID);
+            Log.i("BTRelay.Handler", "NotificationCount uid=" + contactUID + " -> " + n);
+            return n;
         }
 
         return null;
