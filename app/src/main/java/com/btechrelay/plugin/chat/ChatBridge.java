@@ -148,15 +148,31 @@ public class ChatBridge {
             chatRoom = toCallsign.trim();
         }
 
-        // Direct DM from a known peer: GeoChat threads by conversationId must match opening
-        // chat from Contacts (ANDROID-<callsign>). Using RF destination (e.g. VETTE1) as
-        // chatroom put messages under "VETTE1" while UI opens "ANDROID-JUNIOR" — blank thread.
+        // Direct DM: thread id must be the *remote* peer's ANDROID-* UID. Packets include a
+        // 6-byte "room" (RF destination) that is often the local operator's callsign; resolving
+        // that to a UID yields *this device's* UID, so we must not use that as the conversation
+        // (GeoChat would show "from VETTE to VETTE"). If destination resolves to self, use sender.
         if (!"All Chat Rooms".equalsIgnoreCase(chatRoom)) {
-            String peerUid = cotBridge.resolveBtechUidForId(fromCallsign);
-            if (peerUid != null && !peerUid.isEmpty()) {
-                Log.d(TAG, "Inbound DM: thread id " + chatRoom + " → " + peerUid
+            String destUid = cotBridge.resolveBtechUidForId(chatRoom);
+            String senderUid = cotBridge.resolveBtechUidForId(fromCallsign);
+            String selfUid = null;
+            try {
+                selfUid = MapView.getDeviceUid();
+            } catch (Exception ignored) {
+            }
+            if (selfUid != null && destUid != null && selfUid.equals(destUid)
+                    && senderUid != null && !selfUid.equals(senderUid)) {
+                Log.d(TAG, "Inbound DM: destination is self — thread id → remote " + senderUid
+                        + " (RF room was " + chatRoom + ")");
+                chatRoom = senderUid;
+            } else if (senderUid != null && !senderUid.isEmpty()
+                    && (selfUid == null || !selfUid.equals(senderUid))) {
+                Log.d(TAG, "Inbound DM: thread id " + chatRoom + " → " + senderUid
                         + " (match contact chat)");
-                chatRoom = peerUid;
+                chatRoom = senderUid;
+            } else if (destUid != null && !destUid.isEmpty()
+                    && (selfUid == null || !selfUid.equals(destUid))) {
+                chatRoom = destUid;
             }
         }
 

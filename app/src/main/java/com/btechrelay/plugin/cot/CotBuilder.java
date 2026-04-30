@@ -141,10 +141,16 @@ public class CotBuilder {
      * @param chatRoom   Chat room identifier (use "All Chat Rooms" for broadcast)
      * @return CotEvent for the chat message
      */
-    /** Pass wire {@code messageId != 0} from BtechRelay chat packet so GeoChat IDs stay unique vs ATAK merge. */
+    /**
+     * @param chatGrpUid1ForDm If non-null and {@code chatRoom} is an {@code ANDROID-*} peer thread,
+     *                         used as {@code chatgrp} {@code uid1} (local device UID). ATAK GeoChat
+     *                         expects uid0=remote peer and uid1=self for DMs; duplicate uid0/uid1 breaks
+     *                         {@code GeoChatService.sendStatusMessage} ("Send to unknown contact").
+     */
     public static CotEvent buildChatCot(String senderUid, String senderCall,
                                         String message, String chatRoom,
-                                        long uniqueSuffix) {
+                                        long uniqueSuffix,
+                                        String chatGrpUid1ForDm) {
         CotEvent event = new CotEvent();
 
         String uid = "GeoChat." + senderUid + "." + chatRoom + "." + uniqueSuffix;
@@ -175,7 +181,12 @@ public class CotBuilder {
 
         CotDetail chatgrp = new CotDetail("chatgrp");
         chatgrp.setAttribute("uid0", senderUid);
-        chatgrp.setAttribute("uid1", chatRoom);
+        String uid1 = chatRoom;
+        if (chatGrpUid1ForDm != null && !chatGrpUid1ForDm.isEmpty()
+                && chatRoom != null && chatRoom.startsWith("ANDROID-")) {
+            uid1 = chatGrpUid1ForDm;
+        }
+        chatgrp.setAttribute("uid1", uid1);
         chatgrp.setAttribute("id", chatRoom);
         chat.addChild(chatgrp);
 

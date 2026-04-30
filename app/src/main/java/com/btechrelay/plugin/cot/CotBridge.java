@@ -386,8 +386,18 @@ public class CotBridge {
             long uniq = (radioPacketMessageId != 0)
                     ? (((long) radioPacketMessageId) & 0xffffffffL)
                     : System.nanoTime();
+            // Peer ANDROID-* DM: GeoChat expects chatgrp uid0=peer, uid1=local self — not duplicate peer UIDs.
+            String chatGrpUid1ForDm = null;
+            if (chatRoom != null && chatRoom.startsWith("ANDROID-")) {
+                try {
+                    chatGrpUid1ForDm = MapView.getDeviceUid();
+                } catch (Exception ignored) {
+                }
+            }
+
             CotEvent event = CotBuilder.buildChatCot(
-                    canonicalUid, displayCallsign, message, chatRoom, uniq);
+                    canonicalUid, displayCallsign, message, chatRoom, uniq,
+                    chatGrpUid1ForDm);
 
             if (event != null && event.isValid()) {
                 Log.d(TAG, "Injecting chat CoT from " + displayCallsign
