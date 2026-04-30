@@ -6,6 +6,7 @@ import android.os.Bundle;
 import android.preference.Preference;
 import android.preference.PreferenceManager;
 
+import com.atakmap.android.chat.ChatManagerMapComponent;
 import com.atakmap.android.preference.PluginPreferenceFragment;
 
 /**
@@ -17,20 +18,17 @@ import com.atakmap.android.preference.PluginPreferenceFragment;
  * - Chat relay toggle
  * - CoT relay toggle
  * - Auto-reconnect toggle
- * - Team color
  */
 public class SettingsFragment extends PluginPreferenceFragment
         implements SharedPreferences.OnSharedPreferenceChangeListener {
 
     public static final String PREF_BEACON_INTERVAL = "btechrelay_beacon_interval";
     public static final String PREF_AUTO_RECONNECT = "btechrelay_auto_reconnect";
-    public static final String PREF_TEAM_COLOR = "btechrelay_team_color";
     public static final String PREF_ENCRYPTION_ENABLED = "btechrelay_encryption_enabled";
     public static final String PREF_ENCRYPTION_PASSPHRASE = "btechrelay_encryption_passphrase";
 
     public static final String DEFAULT_BEACON_INTERVAL = "60";
     public static final boolean DEFAULT_AUTO_RECONNECT = true;
-    public static final String DEFAULT_TEAM_COLOR = "Cyan";
 
     private static Context staticPluginContext;
 
@@ -89,12 +87,6 @@ public class SettingsFragment extends PluginPreferenceFragment
                     PREF_BEACON_INTERVAL, DEFAULT_BEACON_INTERVAL);
             beaconPref.setSummary("Every " + interval + " seconds");
         }
-
-        Preference teamPref = findPreference(PREF_TEAM_COLOR);
-        if (teamPref != null) {
-            String color = prefs.getString(PREF_TEAM_COLOR, DEFAULT_TEAM_COLOR);
-            teamPref.setSummary("Current: " + color);
-        }
     }
 
     @Override
@@ -143,9 +135,27 @@ public class SettingsFragment extends PluginPreferenceFragment
                 .getBoolean(PREF_AUTO_RECONNECT, DEFAULT_AUTO_RECONNECT);
     }
 
-    public static String getTeamColor(Context context) {
-        return getPrefs(context)
-                .getString(PREF_TEAM_COLOR, DEFAULT_TEAM_COLOR);
+    /**
+     * Use ATAK's team color ("locationTeam") rather than a plugin-managed setting, so
+     * radio contacts match the operator's configured team consistently.
+     */
+    public static String getAtakTeamColor(Context context) {
+        try {
+            String team = ChatManagerMapComponent.getTeamName();
+            if (team != null && !team.trim().isEmpty()) return team.trim();
+        } catch (Exception ignored) {
+        }
+        try {
+            com.atakmap.android.preference.AtakPreferences prefs =
+                    com.atakmap.android.preference.AtakPreferences.getInstance(
+                            com.atakmap.android.maps.MapView.getMapView() != null
+                                    ? com.atakmap.android.maps.MapView.getMapView().getContext()
+                                    : context);
+            String team = prefs.get("locationTeam", "Cyan");
+            if (team != null && !team.trim().isEmpty()) return team.trim();
+        } catch (Exception ignored) {
+        }
+        return "Cyan";
     }
 
     public static boolean isEncryptionEnabled(Context context) {

@@ -82,7 +82,9 @@ try {
         // 1. CotBridge (needs plugin context + MapView)
         cotBridge = new CotBridge(context, view);
         cotBridge.setLocalCallsign(callsign);
-        cotBridge.setTeamColor(SettingsFragment.getTeamColor(context));
+        // Use ATAK's core "team" setting (locationTeam / ChatManagerMapComponent.getTeamName()),
+        // not a plugin-managed color that can drift.
+        cotBridge.setTeamColor(com.atakmap.android.chat.ChatManagerMapComponent.getTeamName());
 
         // GeoChat DM CoT needs local device UID in chatgrp.uid1; resolve on UI thread once
         // so Bluetooth RX thread can inject chat without NULL getDeviceUid().

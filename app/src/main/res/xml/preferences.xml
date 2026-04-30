@@ -15,15 +15,6 @@
             android:entries="@array/beacon_interval_labels"
             android:entryValues="@array/beacon_interval_values" />
 
-        <com.atakmap.android.gui.PanListPreference
-            android:key="btechrelay_team_color"
-            android:title="Team Color"
-            android:summary="Team color for radio contacts on map"
-            android:defaultValue="Cyan"
-            android:dialogTitle="Team Color"
-            android:entries="@array/team_color_entries"
-            android:entryValues="@array/team_color_entries" />
-
     </PreferenceCategory>
 
     <PreferenceCategory
