@@ -44,4 +44,4 @@ Use GitHub Issues. Please include:
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE)
+MIT + Commons Clause — see [LICENSE](LICENSE)
