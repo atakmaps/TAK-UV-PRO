@@ -31,6 +31,8 @@ app/build/
 build_output.txt
 jar_list.txt
 # Local logs/diagnostics — keep README; ignore everything else in scratch/
+*.log
+logs/
 scratch/*
 !scratch/README.txt
 
