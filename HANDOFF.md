@@ -9,8 +9,10 @@ If you are new to ATAK plugin development, start with **`README.md`** for build/
 The plugin started as a “bridge” (toggleable relays of PLI/SA and GeoChat). It has evolved into a **contact-centric transport**:
 
 - Plugin creates “sendable” ATAK contacts for radio peers (UIDs look like `ANDROID-<CALLSIGN>`).
-- ATAK’s native UI actions (chat, send marker/CoT to contact) route through the plugin connector for those contacts.
-- The plugin does **not** blindly relay everything; it targets only destinations that are plugin-managed contacts.
+- **GeoChat** to those contacts routes through the plugin `PluginConnector` (Intent action) and is transmitted over RF.
+- **Markers / arbitrary SA CoT “send to contact” over RF is not an integrated/supported workflow in this fork** (upstream bridge behaviour may still have partial hooks/code paths; README documents what we actually ship).
+
+This fork does **not** aim to blindly relay all ATAK SA over RF; outbound traffic is centred on **contacts + GeoChat** (plus beacon/PLI as implemented).
 
 This framing explains several implementation choices below (connectors, routing hooks, badge integration).
 
@@ -38,9 +40,9 @@ This framing explains several implementation choices below (connectors, routing 
 - **Chat**:
   - Outbound: plugin listens to ATAK’s chat send actions and handles “send to contact” bundles, then transmits over radio.
   - Inbound: plugin injects a `b-t-f` GeoChat CoT event so ATAK’s native parser creates the chat message/thread.
-- **CoT**:
-  - Position beacons and other CoT events are injected/relayed through ATAK’s CoT pipeline.
-  - Outbound interception uses ATAK extension points (pre-send hooks / comms logging) so the plugin can decide whether to send a CoT to RF.
+- **CoT / map objects**:
+  - Position injections and inbound radio-derived CoT go through ATAK’s pipeline for map display.
+  - `CotBridge` registers PreSend hooks and related instrumentation from earlier bridge work — useful for debugging and incremental features, **not** a guarantee that “send marker to contact” is a supported product path here.
 
 ## Data-plane logic trees
 
@@ -118,25 +120,9 @@ Important detail: **the connector action matters**.
 - ATAK uses `new Intent(connector.getConnectionString())` for plugin contacts.
 - Therefore the plugin must register its connector with a connection string that is a **broadcast action** it listens for (currently `com.btechrelay.plugin.action.PLUGIN_CONTACT_GEOCHAT_SEND`).
 
-### C) Outbound ATAK “send marker / CoT” → RF (to a plugin contact)
+### C) Outbound markers / arbitrary CoT → RF (upstream / partial)
 
-This uses ATAK CoT send hooks rather than chat broadcasts.
-
-```
-User "Send" a marker/CoT to a contact (destination is plugin contact)
-  ↓
-ATAK builds CoT event and sends
-  ↓
-Plugin intercepts send via pre-send hook and/or comms logging
-  ↓
-CotBridge decides: shouldRelayToRadio(event, toUIDs)?
-  - only if destination is plugin-managed contact(s)
-  - skip recently-injected inbound CoT (loop suppression)
-  ↓
-CoT serialized/packed (fragmented if needed)
-  ↓
-AX.25 + KISS + Bluetooth SPP
-```
+Older bridge designs expected “send marker/CoT → encode → RF.” **This fork does not advertise or commit to that UX.** Implementation may still include `PreSendProcessor` / comms-log paths in `CotBridge` from prior iterations; treat them as internal plumbing until re-scoped.
 
 ## Contacts model (why `ANDROID-` UIDs exist)
 
@@ -205,7 +191,7 @@ Some ATAK singletons (e.g., `ChatManagerMapComponent`) may not be ready when the
 2. Ensure both are on RF.
 3. From VETTE: open Contacts → select `ANDROID-JUNIOR` (radio contact) → chat → send “hello”.
 4. On JUNIOR: verify message appears in native chat UI and badge clears when read.
-5. From VETTE: send a marker/CoT to `ANDROID-JUNIOR` and verify the plugin logs an outbound relay and RF keys.
+5. (Optional / not this fork’s focus) Sending markers or other non-chat CoT “to contact” over RF is **not** part of the current integrated surface; omit unless you are actively developing that path again.
 
 ## Where to look first (debugging map)
 
@@ -224,9 +210,9 @@ Some ATAK singletons (e.g., `ChatManagerMapComponent`) may not be ready when the
 - `ChatBridge` listeners for mark-read / open-chat / fragment visibility polling
 - ensure `Contacts.getInstance().updateTotalUnreadCount()` is called on clear
 
-### If markers loop back out over RF
-- `CotBridge` loop-suppression map keyed by injected UIDs
-- ensure outbound hook checks “recently injected inbound” and skips
+### If unintended CoT re-transmit / echo appears when extending `CotBridge`
+- Loop-suppression map keyed by injected UIDs (`CotBridge`)
+- Ensure outbound hook skips events that originated from inbound radio injection (`ANDROID-*`, recently injected UID window)
 
 ## Key files (jump list)
 

@@ -8,12 +8,11 @@ A free, open-source ATAK plugin that connects BTECH radios to the Android Team A
 |---------|--------|-------------|
 | **Position Sharing (PLI)** | ✅ Working | Your ATAK position is beaconed over radio at a configurable interval. Incoming positions appear as contacts on the map. |
 | **GeoChat over RF (contact-centric)** | ✅ Working | Chat to radio peers using ATAK’s native Contacts/GeoChat UI (plugin contacts route via RF transport). |
-| **Targeted CoT/marker send over RF** | ✅ Working | Send markers/CoT to a specific radio contact from ATAK; large CoT is fragmented/reassembled automatically. |
+| **Markers / arbitrary CoT over RF from native Contacts UI** | — Not integrated | Older “bridge-style” relays could packetize CoT to RF; **this fork** focuses on Contacts + GeoChat. Generic “send marker/CoT to contact” routing is **not** wired here the way upstream described. Fragment/reassemble code paths may exist for reuse but are **not exposed as an end‑user feature.** |
 | **AES-256 Encryption** | ✅ Working | Optional passphrase-based AES-256-CBC encryption for all radio traffic. All nodes must share the same passphrase. |
 | **Contact Tracking** | ✅ Working | Radios in range are tracked as contacts with callsign, last-seen time, and position. Contacts that go silent are aged out. |
 | **Bluetooth Auto-Reconnect** | ✅ Working | Three-strategy SPP connection with exponential backoff reconnect (up to 5 attempts). |
 | **Send Ping** | ✅ Working | Lightweight keepalive — lets other nodes know you're active even without GPS. |
-| **Voice PTT** | 🔧 Scaffold | Push-to-talk via Bluetooth HFP audio routing. Core code is in place; needs real-radio testing. |
 
 ## How It Works
 
@@ -105,7 +104,7 @@ Open `gradle.properties` and update the `org.gradle.java.home` path to match you
 
 ```bash
 # Clone the repo
-git clone https://github.com/darksteal/BTECH-Relay.git
+git clone https://github.com/atakmaps/BTECH-Relay.git
 cd BTECH-Relay
 
 # Linux/macOS
@@ -157,8 +156,9 @@ Then open ATAK → Menu → Tools → **BTECH Relay**.
 
 Radio peers are represented as **native ATAK Contacts** (UIDs look like `ANDROID-<CALLSIGN>`). Use the ATAK Contacts UI to:
 
-- open GeoChat with a radio contact (messages route over RF via the plugin)
-- send CoT/markers to a radio contact (only targeted sends route over RF; the plugin does not blindly broadcast everything)
+- open GeoChat with a radio contact (messages route over RF via the plugin).
+
+**Markers and other situational-awareness CoT** are **not** part of this fork’s advertised surface; upstream “bridge relay” behaviour is intentionally out of scope until it is redesigned for the contact-centric model.
 
 For deeper implementation details and a full “new agent” handoff (logic trees, key files, known ATAK gotchas), see `HANDOFF.md`.
 
@@ -198,8 +198,7 @@ app/src/main/java/com/btechrelay/plugin/
 │   ├── ContactTracker.java       # Track radios in range
 │   └── RadioContact.java         # Contact data model
 ├── voice/
-│   ├── PttController.java        # PTT via Bluetooth HFP (scaffold)
-│   └── AudioRouter.java          # Audio routing for PTT
+│   └── (legacy PTT scaffolding; not shipped as a feature in this fork)
 └── ui/
     └── SettingsFragment.java     # Preference constants and helpers
 ```
