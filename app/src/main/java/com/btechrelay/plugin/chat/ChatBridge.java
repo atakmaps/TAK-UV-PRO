@@ -8,6 +8,8 @@ import android.util.Log;
 
 import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.maps.MapView;
+import com.atakmap.android.contact.Contact;
+import com.atakmap.android.contact.Contacts;
 import com.atakmap.coremap.cot.event.CotEvent;
 import com.atakmap.coremap.cot.event.CotDetail;
 
@@ -17,6 +19,8 @@ import com.btechrelay.plugin.cot.CotBridge;
 import com.btechrelay.plugin.crypto.EncryptionManager;
 import com.btechrelay.plugin.protocol.BtechRelayPacket;
 import com.btechrelay.plugin.BtechRelayContactHandler;
+
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Bridges ATAK GeoChat messages with the radio link.
@@ -71,6 +75,15 @@ public class ChatBridge {
      * viewing the chat.
      */
     private volatile String openConversationId;
+
+    /**
+     * ATAK marks lines read in {@code ConversationFragment} via {@code markAllRead} →
+     * {@code Contact.setUnreadCount} without always broadcasting {@code markmessageread}.
+     * When native unread drops from &gt; 0 to 0, clear our plugin badge for that ANDROID-* uid.
+     */
+    private final ConcurrentHashMap<String, Integer> lastAtakUnreadByUid =
+            new ConcurrentHashMap<>();
+    private Contacts.OnContactsChangedListener contactsUnreadSyncListener;
 
     public ChatBridge(Context pluginContext, MapView mapView) {
         this.pluginContext = pluginContext;
@@ -264,6 +277,39 @@ public class ChatBridge {
             markRead.addAction("com.atakmap.chat.markmessageread");
             AtakBroadcast.getInstance().registerReceiver(chatMarkReadReceiver, markRead);
         } catch (Exception ignored) {
+        }
+
+        try {
+            contactsUnreadSyncListener = new Contacts.OnContactsChangedListener() {
+                @Override
+                public void onContactsSizeChange(Contacts contacts) {
+                }
+
+                @Override
+                public void onContactChanged(String contactUid) {
+                    if (contactUid == null || !contactUid.startsWith("ANDROID-")) {
+                        return;
+                    }
+                    try {
+                        Contact c = Contacts.getInstance().getContactByUuid(contactUid);
+                        if (c == null) {
+                            return;
+                        }
+                        int now = c.getUnreadCount();
+                        Integer prev = lastAtakUnreadByUid.put(contactUid, now);
+                        if (prev != null && prev > 0 && now == 0) {
+                            Log.d(TAG, "ATAK native unread cleared for " + contactUid
+                                    + " — clearing plugin Contacts badge");
+                            BtechRelayContactHandler.clearUnread(contactUid);
+                        }
+                    } catch (Exception e) {
+                        Log.w(TAG, "contacts unread sync", e);
+                    }
+                }
+            };
+            Contacts.getInstance().addListener(contactsUnreadSyncListener);
+        } catch (Exception e) {
+            Log.w(TAG, "Could not register Contacts unread sync listener", e);
         }
 
         Log.d(TAG, "Outgoing chat relay started");
@@ -532,6 +578,15 @@ public class ChatBridge {
             }
             chatClosedReceiver = null;
         }
+        if (contactsUnreadSyncListener != null) {
+            try {
+                Contacts.getInstance().removeListener(contactsUnreadSyncListener);
+            } catch (Exception e) {
+                Log.w(TAG, "Error unregistering Contacts listener", e);
+            }
+            contactsUnreadSyncListener = null;
+        }
+        lastAtakUnreadByUid.clear();
         Log.d(TAG, "ChatBridge disposed");
     }
 }
