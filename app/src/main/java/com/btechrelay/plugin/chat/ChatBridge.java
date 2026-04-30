@@ -186,9 +186,22 @@ public class ChatBridge {
                 public void onReceive(Context context, Intent intent) {
                     if (intent == null) return;
                     if (!"com.atakmap.android.OPEN_GEOCHAT".equals(intent.getAction())) return;
-                    String convo = intent.getStringExtra("conversationId");
+                    // ATAK (ChatManagerMapComponent) puts conversationId inside the
+                    // parcelable "message" bundle, not as top-level intent extras — without
+                    // this, opening GeoChat from the main chat menu never set openConversationId
+                    // and the Contacts badge stayed stuck until Contacts pane opened chat.
+                    String convo = null;
+                    android.os.Bundle msgBundle = getOpenGeoChatMessageBundle(intent);
+                    if (msgBundle != null) {
+                        convo = msgBundle.getString("conversationId");
+                        if (convo == null || convo.isEmpty()) {
+                            convo = msgBundle.getString("chatroom");
+                        }
+                    }
                     if (convo == null || convo.isEmpty()) {
-                        // Some builds use "chatroom" / "id" instead.
+                        convo = intent.getStringExtra("conversationId");
+                    }
+                    if (convo == null || convo.isEmpty()) {
                         convo = intent.getStringExtra("chatroom");
                     }
                     if (convo == null || convo.isEmpty()) {
@@ -264,6 +277,20 @@ public class ChatBridge {
                         android.os.Bundle.class);
             }
             return intent.getParcelableExtra("MESSAGE");
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Bundle from {@code com.atakmap.android.OPEN_GEOCHAT} (key {@code "message"}). */
+    private static android.os.Bundle getOpenGeoChatMessageBundle(Intent intent) {
+        if (intent == null) return null;
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                return intent.getParcelableExtra("message", android.os.Bundle.class);
+            }
+            android.os.Parcelable p = intent.getParcelableExtra("message");
+            return p instanceof android.os.Bundle ? (android.os.Bundle) p : null;
         } catch (Exception e) {
             return null;
         }
