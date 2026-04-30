@@ -419,8 +419,9 @@ public class CotBridge {
             if (event != null && event.isValid()) {
                 if (chatGrpUid1ForDm != null && chatRoom != null
                         && chatRoom.startsWith(ANDROID_UID_PREFIX)) {
-                    Log.d(TAG, "GeoChat DM Cot uid suffix local=" + chatGrpUid1ForDm
-                            + " peer THREAD=" + chatRoom + " sender=" + canonicalUid);
+                    Log.d(TAG, "GeoChat DM __chat id(local)=" + chatGrpUid1ForDm
+                            + " chatroom(callsign)=" + displayCallsign
+                            + " peerTHREAD=" + chatRoom + " sender=" + canonicalUid);
                 }
                 Log.d(TAG, "Injecting chat CoT from " + displayCallsign
                         + " (uid=" + canonicalUid + " midpkt=" + radioPacketMessageId + ")");

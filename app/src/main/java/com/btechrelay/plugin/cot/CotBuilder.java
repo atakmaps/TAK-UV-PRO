@@ -159,13 +159,18 @@ public class CotBuilder {
                                         String localDeviceUidIfDm) {
         CotEvent event = new CotEvent();
 
-        String convoSurface = dmPeerConversationUid;
+        // CHAT3 (CoT with <chatgrp>): ChatMessageParser.getConversationUid reads __chat "chatroom"
+        // and resolves via getFirstContactWithCallsign — must be the peer's callsign (e.g. VETTE),
+        // not ANDROID-1729… or lookup fails and GeoChat routing breaks.
+        String chatroomAttr = dmPeerConversationUid;
+        String idAttr = dmPeerConversationUid;
         if (localDeviceUidIfDm != null && !localDeviceUidIfDm.isEmpty()
                 && dmPeerConversationUid != null && dmPeerConversationUid.startsWith("ANDROID-")) {
-            convoSurface = localDeviceUidIfDm.trim();
+            idAttr = localDeviceUidIfDm.trim();
+            chatroomAttr = senderCall != null ? senderCall.trim() : dmPeerConversationUid;
         }
 
-        String uid = "GeoChat." + senderUid + "." + convoSurface + "." + uniqueSuffix;
+        String uid = "GeoChat." + senderUid + "." + idAttr + "." + uniqueSuffix;
         event.setUID(uid);
         event.setType("b-t-f");
         event.setHow("h-g-i-g-o"); // human-generated
@@ -187,19 +192,19 @@ public class CotBuilder {
         chat.setAttribute("parent", "RootContactGroup");
         chat.setAttribute("groupOwner", "false");
         chat.setAttribute("messageId", uid);
-        chat.setAttribute("chatroom", convoSurface);
-        chat.setAttribute("id", convoSurface);
+        chat.setAttribute("chatroom", chatroomAttr);
+        chat.setAttribute("id", idAttr);
         chat.setAttribute("senderCallsign", senderCall);
 
         CotDetail chatgrp = new CotDetail("chatgrp");
         chatgrp.setAttribute("uid0", senderUid);
-        String uid1 = convoSurface;
+        String uid1 = idAttr;
         if (localDeviceUidIfDm != null && !localDeviceUidIfDm.isEmpty()
                 && dmPeerConversationUid != null && dmPeerConversationUid.startsWith("ANDROID-")) {
             uid1 = localDeviceUidIfDm.trim();
         }
         chatgrp.setAttribute("uid1", uid1);
-        chatgrp.setAttribute("id", dmPeerConversationUid != null ? dmPeerConversationUid : convoSurface);
+        chatgrp.setAttribute("id", dmPeerConversationUid != null ? dmPeerConversationUid : idAttr);
         chat.addChild(chatgrp);
 
         detail.addChild(chat);
@@ -217,7 +222,7 @@ public class CotBuilder {
         // Keep wire "to" as the peer thread; __chat id/chatroom carry local surface for CHAT3 parser remap.
         remarks.setAttribute("to",
                 (dmPeerConversationUid != null && !dmPeerConversationUid.isEmpty())
-                        ? dmPeerConversationUid : convoSurface);
+                        ? dmPeerConversationUid : chatroomAttr);
         remarks.setAttribute("time", formatCotTime(now));
         remarks.setInnerText(message);
         detail.addChild(remarks);
