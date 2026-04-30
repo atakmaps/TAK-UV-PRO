@@ -398,9 +398,18 @@ public class CotBridge {
             String displayCallsign = canonicalUid.startsWith(ANDROID_UID_PREFIX)
                     ? canonicalUid.substring(ANDROID_UID_PREFIX.length())
                     : trimmed.toUpperCase();
-            long uniq = (radioPacketMessageId != 0)
-                    ? (((long) radioPacketMessageId) & 0xffffffffL)
-                    : System.nanoTime();
+            // GeoChat dedupes/threads by messageId (Cot UID). If we use only wire mid (1,2,3...),
+            // restarting ATAK (or receiver) with existing chat history causes collisions and the
+            // UI "updates" an old row instead of inserting the new message. Make the UID globally
+            // unique while still embedding the wire mid for debugging.
+            long uniq;
+            if (radioPacketMessageId != 0) {
+                long mid = ((long) radioPacketMessageId) & 0xffffffffL;
+                long t = System.currentTimeMillis() & 0xffffffffL;
+                uniq = (mid << 32) | t;
+            } else {
+                uniq = System.nanoTime();
+            }
             // Peer ANDROID-* DM: GeoChat expects chatgrp uid0=peer, uid1=local self. Radio RX runs on
             // BT thread; MapView.getDeviceUid() is often NULL there — omitting uid1 caused
             // GeoChat.ANDROID-VETTE.ANDROID-VETTE and broken UI / ACK path.
