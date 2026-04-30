@@ -21,6 +21,7 @@ import com.btechrelay.plugin.bluetooth.BtConnectionManager;
 import com.btechrelay.plugin.cot.CotBridge;
 import com.btechrelay.plugin.crypto.EncryptionManager;
 import com.btechrelay.plugin.protocol.BtechRelayPacket;
+import com.btechrelay.plugin.util.CallsignUtil;
 import com.btechrelay.plugin.BtechRelayContactHandler;
 
 import java.lang.reflect.Field;
@@ -149,9 +150,11 @@ public class ChatBridge {
         }
 
         // Direct DM: thread id must be the *remote* peer's ANDROID-* UID. Packets include a
-        // 6-byte "room" (RF destination) that is often the local operator's callsign; resolving
-        // that to a UID yields *this device's* UID, so we must not use that as the conversation
-        // (GeoChat would show "from VETTE to VETTE"). If destination resolves to self, use sender.
+        // 6-byte "room" (RF destination) that is often THIS operator's callsign (e.g. JUNIOR).
+        // Local operator is rarely in btechIdToUid MapView.getDeviceUid() is ANDROID-1729… not
+        // ANDROID-JUNIOR — so resolveBtechUidForId("JUNIOR") is often NULL and we incorrectly
+        // used sender ANDROID-VETTE as both ends (GeoChat.ANDROID-VETTE.ANDROID-VETTE).
+        // Detect RF dest == configured local callsign (or its AX.25 form) FIRST, then use sender UID.
         if (!"All Chat Rooms".equalsIgnoreCase(chatRoom)) {
             String destUid = cotBridge.resolveBtechUidForId(chatRoom);
             String senderUid = cotBridge.resolveBtechUidForId(fromCallsign);
@@ -160,17 +163,29 @@ public class ChatBridge {
                 selfUid = MapView.getDeviceUid();
             } catch (Exception ignored) {
             }
-            if (selfUid != null && destUid != null && selfUid.equals(destUid)
+
+            boolean peerThreadResolved = false;
+            if (rfDestinationLooksLikeSelf(chatRoom.trim())
+                    && senderUid != null && !senderUid.isEmpty()
+                    && (selfUid == null || !selfUid.equals(senderUid))) {
+                Log.d(TAG, "Inbound DM: RF destination is local callsign \"" + chatRoom
+                        + "\" — thread → remote peer " + senderUid);
+                chatRoom = senderUid;
+                peerThreadResolved = true;
+            }
+
+            if (!peerThreadResolved && selfUid != null && destUid != null
+                    && selfUid.equals(destUid)
                     && senderUid != null && !selfUid.equals(senderUid)) {
                 Log.d(TAG, "Inbound DM: destination is self — thread id → remote " + senderUid
                         + " (RF room was " + chatRoom + ")");
                 chatRoom = senderUid;
-            } else if (senderUid != null && !senderUid.isEmpty()
+            } else if (!peerThreadResolved && senderUid != null && !senderUid.isEmpty()
                     && (selfUid == null || !selfUid.equals(senderUid))) {
                 Log.d(TAG, "Inbound DM: thread id " + chatRoom + " → " + senderUid
                         + " (match contact chat)");
                 chatRoom = senderUid;
-            } else if (destUid != null && !destUid.isEmpty()
+            } else if (!peerThreadResolved && destUid != null && !destUid.isEmpty()
                     && (selfUid == null || !selfUid.equals(destUid))) {
                 chatRoom = destUid;
             }
@@ -193,6 +208,46 @@ public class ChatBridge {
 
         cotBridge.injectChatCot(fromCallsign, message, chatRoom,
                 radioPacketMessageId);
+    }
+
+    /** True if the RF payload "chat room" equals this operator's callsign or its AX.25 form. */
+    private boolean rfDestinationLooksLikeSelf(String room) {
+        if (room == null || room.isEmpty() || localCallsign == null) {
+            return false;
+        }
+        String r = room.trim();
+        String loc = localCallsign.trim();
+        if (loc.isEmpty()) {
+            return false;
+        }
+        if (loc.equalsIgnoreCase(r)) {
+            return true;
+        }
+        try {
+            if (CallsignUtil.toRadioCallsign(loc).equalsIgnoreCase(r)) {
+                return true;
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            com.atakmap.android.maps.PointMapItem selfMarker = mapView.getSelfMarker();
+            if (selfMarker != null) {
+                String m = selfMarker.getMetaString("callsign", null);
+                if (m != null) {
+                    if (m.trim().equalsIgnoreCase(r)) {
+                        return true;
+                    }
+                    try {
+                        if (CallsignUtil.toRadioCallsign(m.trim()).equalsIgnoreCase(r)) {
+                            return true;
+                        }
+                    } catch (Exception ignored2) {
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     /**
