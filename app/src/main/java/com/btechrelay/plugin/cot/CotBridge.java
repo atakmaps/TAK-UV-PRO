@@ -41,6 +41,9 @@ public class CotBridge {
 
     private final Context pluginContext;
     private final MapView mapView;
+
+    /** Set from UI thread once; BT read thread often cannot resolve {@link MapView#getDeviceUid()}. */
+    private volatile String cachedLocalDeviceUidForGeoChat;
     private BtConnectionManager btManager;
     private String localCallsign = "OPENRL";
     private String teamColor = "Cyan";
@@ -109,6 +112,18 @@ public class CotBridge {
 
     public void setLocalCallsign(String callsign) {
         this.localCallsign = callsign;
+    }
+
+    /**
+     * Snapshot local ATAK device/self-marker UID on the UI thread for GeoChat {@code chatgrp} uid1
+     * when injecting inbound chat from Bluetooth RX (background thread).
+     */
+    public void refreshCachedLocalDeviceUidForGeoChat() {
+        String u = tryResolveAtakSelfUidForChatGrp(mapView);
+        if (u != null) {
+            cachedLocalDeviceUidForGeoChat = u;
+            Log.d(TAG, "Cached local ATAK UID for inbound GeoChat DMs: " + u);
+        }
     }
 
     public void setRelayOutgoingSa(boolean relay) {
@@ -386,12 +401,14 @@ public class CotBridge {
             long uniq = (radioPacketMessageId != 0)
                     ? (((long) radioPacketMessageId) & 0xffffffffL)
                     : System.nanoTime();
-            // Peer ANDROID-* DM: GeoChat expects chatgrp uid0=peer, uid1=local self — not duplicate peer UIDs.
+            // Peer ANDROID-* DM: GeoChat expects chatgrp uid0=peer, uid1=local self. Radio RX runs on
+            // BT thread; MapView.getDeviceUid() is often NULL there — omitting uid1 caused
+            // GeoChat.ANDROID-VETTE.ANDROID-VETTE and broken UI / ACK path.
             String chatGrpUid1ForDm = null;
             if (chatRoom != null && chatRoom.startsWith("ANDROID-")) {
-                try {
-                    chatGrpUid1ForDm = MapView.getDeviceUid();
-                } catch (Exception ignored) {
+                chatGrpUid1ForDm = cachedLocalDeviceUidForGeoChat;
+                if (chatGrpUid1ForDm == null) {
+                    chatGrpUid1ForDm = resolveLocalAtakUidForChatGrp(canonicalUid, chatRoom);
                 }
             }
 
@@ -400,6 +417,10 @@ public class CotBridge {
                     chatGrpUid1ForDm);
 
             if (event != null && event.isValid()) {
+                if (chatGrpUid1ForDm != null) {
+                    Log.d(TAG, "GeoChat DM chatgrp.uid1(local)=" + chatGrpUid1ForDm
+                            + " peer=" + canonicalUid + " conversation=" + chatRoom);
+                }
                 Log.d(TAG, "Injecting chat CoT from " + displayCallsign
                         + " (uid=" + canonicalUid + " midpkt=" + radioPacketMessageId + ")");
                 markInboundInjectSkipOutboundRelay(event.getUID());
@@ -687,6 +708,61 @@ public class CotBridge {
 
         Log.d(TAG, "Outbound GeoChat (CommsLogger) → radio: uid=" + uid);
         new Thread(() -> sendCotOverRadio(event)).start();
+    }
+
+    /**
+     * UID for GeoChat {@code chatgrp}/{@code __chat} "local endpoint" when ingesting inbound DMs from
+     * a background thread. {@link MapView#getDeviceUid()} may return NULL off the UI thread unless
+     * {@link MapView#getMapView()} is initialized — fall back to self marker UID.
+     */
+    private String resolveLocalAtakUidForChatGrp(String peerSenderUid,
+            String dmConversationId) {
+        String local = tryResolveAtakSelfUidForChatGrp(mapView);
+        if (local == null && dmConversationId != null
+                && dmConversationId.startsWith(ANDROID_UID_PREFIX)) {
+            Log.w(TAG, "injectChatCot: could not resolve local ATAK UID for chatgrp.uid1;"
+                    + " GeoChat ACK/DM pairing may fail (conversation=" + dmConversationId + ")");
+        }
+        if (local != null && peerSenderUid != null && peerSenderUid.equals(local)) {
+            Log.w(TAG, "injectChatCot: device uid equals peer sender " + local
+                    + " — chatgrp may still be invalid");
+        }
+        return local;
+    }
+
+    private static String tryResolveAtakSelfUidForChatGrp(MapView instanceMapView) {
+        MapView mv = null;
+        try {
+            mv = MapView.getMapView();
+        } catch (Exception ignored) {
+        }
+        if (mv == null && instanceMapView != null) {
+            mv = instanceMapView;
+        }
+        try {
+            String id = MapView.getDeviceUid();
+            if (!isBlank(id)) {
+                return id.trim();
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            if (mv != null) {
+                com.atakmap.android.maps.Marker sm = mv.getSelfMarker();
+                if (sm != null) {
+                    String id = sm.getUID();
+                    if (!isBlank(id)) {
+                        return id.trim();
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.trim().isEmpty();
     }
 
     /**
