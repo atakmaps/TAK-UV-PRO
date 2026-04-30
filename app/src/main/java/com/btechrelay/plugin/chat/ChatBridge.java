@@ -196,6 +196,9 @@ public class ChatBridge {
                     }
                     if (convo != null && !convo.isEmpty()) {
                         openConversationId = convo;
+                        if (convo.startsWith("ANDROID-")) {
+                            BtechRelayContactHandler.clearUnread(convo);
+                        }
                     }
                 }
             };
@@ -211,7 +214,11 @@ public class ChatBridge {
                 @Override
                 public void onReceive(Context context, Intent intent) {
                     if (intent == null) return;
-                    if (!"com.atakmap.chat.chatroom_closed".equals(intent.getAction())) return;
+                    String a = intent.getAction();
+                    if (!"com.atakmap.chat.chatroom_closed".equals(a)
+                            && !"CHAT_ROOM_DROPDOWN_CLOSED".equals(a)) {
+                        return;
+                    }
                     openConversationId = null;
                 }
             };
@@ -220,6 +227,29 @@ public class ChatBridge {
             closedF.addAction("com.atakmap.chat.chatroom_closed");
             closedF.addAction("CHAT_ROOM_DROPDOWN_CLOSED");
             AtakBroadcast.getInstance().registerReceiver(chatClosedReceiver, closedF);
+        } catch (Exception ignored) {
+        }
+
+        // Clear plugin badge when ATAK marks a message read (chat menu path, not only Contacts).
+        try {
+            chatMarkReadReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    if (intent == null) return;
+                    if (!"com.atakmap.chat.markmessageread".equals(intent.getAction())) return;
+                    android.os.Bundle b = intent.getBundleExtra("chat_bundle");
+                    if (b == null) return;
+                    String convo = b.getString("conversationId");
+                    if (convo == null || convo.isEmpty()) return;
+                    if (convo.startsWith("ANDROID-")) {
+                        BtechRelayContactHandler.clearUnread(convo);
+                    }
+                }
+            };
+            AtakBroadcast.DocumentedIntentFilter markRead =
+                    new AtakBroadcast.DocumentedIntentFilter();
+            markRead.addAction("com.atakmap.chat.markmessageread");
+            AtakBroadcast.getInstance().registerReceiver(chatMarkReadReceiver, markRead);
         } catch (Exception ignored) {
         }
 

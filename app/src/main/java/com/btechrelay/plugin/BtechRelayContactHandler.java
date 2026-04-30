@@ -18,6 +18,10 @@ import java.util.concurrent.ConcurrentHashMap;
 public class BtechRelayContactHandler extends
         ContactConnectorManager.ContactConnectorHandler {
 
+    /** Must match ChatBridge.ACTION_PLUGIN_CONTACT_GEOCHAT_SEND. */
+    private static final String PLUGIN_GEOCHAT_ACTION =
+            "com.btechrelay.plugin.action.PLUGIN_CONTACT_GEOCHAT_SEND";
+
     private final Context pluginContext;
 
     /**
@@ -128,9 +132,12 @@ public class BtechRelayContactHandler extends
                 + " uid=" + contactUID + " address=" + connectorAddress);
 
         if (feature == ContactConnectorManager.ConnectorFeature.NotificationCount) {
-            // Avoid double-count: ATAK may query multiple connectors for the same UID.
-            if (connectorAddress == null) {
-                Log.i("BTRelay.Handler", "NotificationCount uid=" + contactUID + " addr=null -> 0");
+            // ATAK sums counts across connector queries; only the plugin connector may report
+            // unread — all other addresses (including null) must return 0 or the UI shows 2.
+            if (connectorAddress == null
+                    || !PLUGIN_GEOCHAT_ACTION.equals(connectorAddress)) {
+                Log.i("BTRelay.Handler", "NotificationCount uid=" + contactUID + " addr="
+                        + connectorAddress + " -> 0 (plugin-only)");
                 return 0;
             }
             Set<String> keys = unreadKeysByUid.get(contactUID != null ? contactUID.trim() : "");
