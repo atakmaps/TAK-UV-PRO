@@ -26,6 +26,7 @@ import com.btechrelay.plugin.BtechRelayContactHandler;
 
 import java.lang.reflect.Field;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -93,6 +94,14 @@ public class ChatBridge {
 
     /** Runs after ATAK delivers chat to the UI (fragment may not exist yet on first callback). */
     private ChatManagerMapComponent.ChatMessageListener atakChatMessageListener;
+
+    /**
+     * Conversations with pending unread messages. Some ATAK paths open GeoChat without
+     * broadcasting OPEN_GEOCHAT/markmessageread; we poll for a visible ConversationFragment
+     * and clear unread as soon as the user is actually viewing the thread.
+     */
+    private final Set<String> pendingUnreadConversationUids = ConcurrentHashMap.newKeySet();
+    private volatile boolean unreadVisibilityPollRunning;
 
     private volatile boolean disposed;
 
@@ -200,9 +209,11 @@ public class ChatBridge {
             String open = openConversationId;
             if (open != null && open.equals(chatRoom)) {
                 // Conversation is open; treat as already-seen.
-                BtechRelayContactHandler.clearUnread(chatRoom);
+                clearUnreadLocal(chatRoom);
             } else {
                 BtechRelayContactHandler.incrementUnreadOnce(chatRoom, radioPacketMessageId, message);
+                pendingUnreadConversationUids.add(chatRoom);
+                startUnreadVisibilityPollIfNeeded();
             }
         }
 
@@ -304,7 +315,7 @@ public class ChatBridge {
                     if (convo != null && !convo.isEmpty()) {
                         openConversationId = convo;
                         if (convo.startsWith("ANDROID-")) {
-                            BtechRelayContactHandler.clearUnread(convo);
+                            clearUnreadLocal(convo);
                             scheduleClearUnreadWhenGeoChatFragmentVisible(convo);
                         }
                     }
@@ -350,7 +361,7 @@ public class ChatBridge {
                     String convo = b.getString("conversationId");
                     if (convo == null || convo.isEmpty()) return;
                     if (convo.startsWith("ANDROID-")) {
-                        BtechRelayContactHandler.clearUnread(convo);
+                        clearUnreadLocal(convo);
                     }
                 }
             };
@@ -382,7 +393,7 @@ public class ChatBridge {
                         if (prev != null && prev > 0 && now == 0) {
                             Log.d(TAG, "ATAK native unread cleared for " + contactUid
                                     + " — clearing plugin Contacts badge");
-                            BtechRelayContactHandler.clearUnread(contactUid);
+                            clearUnreadLocal(contactUid);
                         }
                     } catch (Exception e) {
                         Log.w(TAG, "contacts unread sync", e);
@@ -468,7 +479,7 @@ public class ChatBridge {
                 }
                 try {
                     if (isGeoChatConversationFragmentVisible(conversationId)) {
-                        BtechRelayContactHandler.clearUnread(conversationId);
+                        clearUnreadLocal(conversationId);
                         Log.d(TAG, "Plugin unread cleared (GeoChat fragment visible) " + conversationId);
                     }
                 } catch (Exception e) {
@@ -514,6 +525,53 @@ public class ChatBridge {
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    private void clearUnreadLocal(String conversationId) {
+        if (conversationId == null) return;
+        pendingUnreadConversationUids.remove(conversationId);
+        BtechRelayContactHandler.clearUnread(conversationId);
+        if (pendingUnreadConversationUids.isEmpty()) {
+            unreadVisibilityPollRunning = false;
+        }
+    }
+
+    private void startUnreadVisibilityPollIfNeeded() {
+        if (disposed || unreadVisibilityPollRunning || mapView == null) {
+            return;
+        }
+        unreadVisibilityPollRunning = true;
+        mapView.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (disposed) {
+                    unreadVisibilityPollRunning = false;
+                    return;
+                }
+                if (pendingUnreadConversationUids.isEmpty()) {
+                    unreadVisibilityPollRunning = false;
+                    return;
+                }
+                try {
+                    // Iterate snapshot to avoid concurrent modification churn.
+                    for (String uid : pendingUnreadConversationUids.toArray(new String[0])) {
+                        if (uid == null) continue;
+                        if (isGeoChatConversationFragmentVisible(uid)) {
+                            clearUnreadLocal(uid);
+                            Log.d(TAG, "Plugin unread cleared (poll visible) " + uid);
+                        }
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "unread visibility poll", e);
+                }
+                // Keep polling while there are pending unread threads.
+                if (!pendingUnreadConversationUids.isEmpty()) {
+                    mapView.postDelayed(this, 500L);
+                } else {
+                    unreadVisibilityPollRunning = false;
+                }
+            }
+        }, 200L);
     }
 
     private static android.os.Bundle getMessageBundleExtra(Intent intent) {
@@ -744,6 +802,8 @@ public class ChatBridge {
      */
     public void dispose() {
         disposed = true;
+        pendingUnreadConversationUids.clear();
+        unreadVisibilityPollRunning = false;
         if (chatReceiver != null) {
             try {
                 AtakBroadcast.getInstance()
