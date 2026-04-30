@@ -82,6 +82,66 @@ adb install -r app/build/outputs/apk/civ/debug/ATAK-Plugin-BTECHRelay-*.apk
 
 Then open ATAK → Menu → Tools → **BTECH Relay**.
 
+### Device debugging (ADB)
+
+**Serial numbers differ on every phone.** Replace `SERIAL` below with your device id from `adb devices` (the hex string in the left column).
+
+List connected devices:
+
+```bash
+adb devices
+```
+
+Target one device when multiple phones are plugged in (`-s SERIAL`):
+
+```bash
+adb -s SERIAL install -r app/build/outputs/apk/civ/debug/ATAK-Plugin-BTECHRelay-*.apk
+```
+
+Restart ATAK only:
+
+```bash
+adb -s SERIAL shell am force-stop com.atakmap.app.civ
+adb -s SERIAL shell monkey -p com.atakmap.app.civ 1
+```
+
+Reboot the phone:
+
+```bash
+adb -s SERIAL reboot
+```
+
+### Clearing stale ATAK / chat data (field “reset”)
+
+`pm clear` on ATAK does **not** always remove everything users expect. ATAK also stores data under **`/sdcard/ATAK`**. If old chats or other state persist after `pm clear`, remove that folder (and scoped external app data) after a force-stop.
+
+**Typical full local wipe (ATAK CIV package is `com.atakmap.app.civ` — confirm with `pm list packages | grep atakmap` on your device):**
+
+```bash
+adb -s SERIAL shell am force-stop com.atakmap.app.civ
+adb -s SERIAL shell pm clear --user 0 com.atakmap.app.civ
+adb -s SERIAL shell rm -rf /sdcard/Android/data/com.atakmap.app.civ
+adb -s SERIAL shell rm -rf /sdcard/ATAK
+```
+
+Optional: clear the **plugin** sandbox only (plugin prefs; does **not** remove ATAK’s GeoChat DB):
+
+```bash
+adb -s SERIAL shell pm clear --user 0 com.btechrelay.plugin
+```
+
+If `pm clear` seems to do nothing, confirm you are clearing the correct **Android user** (work profiles add extra user ids):
+
+```bash
+adb -s SERIAL shell pm list users
+```
+
+### Logcat (plugin + chat while testing)
+
+```bash
+adb -s SERIAL logcat -v time "*:S" BtechRelay.Router:D BtechRelay.ChatBridge:D BtechRelay.CotBridge:D BTRelay.Handler:I ChatManagerMapComponent:D
+```
+
 ### Notes
 
 - The Gradle wrapper downloads Gradle 8.13 automatically on first run — no separate Gradle install needed.
