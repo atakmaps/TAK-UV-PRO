@@ -214,7 +214,10 @@ public class CotBuilder {
         // remarks element — contains the actual message
         CotDetail remarks = new CotDetail("remarks");
         remarks.setAttribute("source", "BAO.F.ATAK." + senderUid);
-        remarks.setAttribute("to", convoSurface);
+        // Keep wire "to" as the peer thread; __chat id/chatroom carry local surface for CHAT3 parser remap.
+        remarks.setAttribute("to",
+                (dmPeerConversationUid != null && !dmPeerConversationUid.isEmpty())
+                        ? dmPeerConversationUid : convoSurface);
         remarks.setAttribute("time", formatCotTime(now));
         remarks.setInnerText(message);
         detail.addChild(remarks);
