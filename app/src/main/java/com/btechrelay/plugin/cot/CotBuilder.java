@@ -142,18 +142,30 @@ public class CotBuilder {
      * @return CotEvent for the chat message
      */
     /**
-     * @param chatGrpUid1ForDm If non-null and {@code chatRoom} is an {@code ANDROID-*} peer thread,
-     *                         used as {@code chatgrp} {@code uid1} (local device UID). ATAK GeoChat
-     *                         expects uid0=remote peer and uid1=self for DMs; duplicate uid0/uid1 breaks
-     *                         {@code GeoChatService.sendStatusMessage} ("Send to unknown contact").
+     * For inbound DMs, {@link com.atakmap.android.chat.ChatMessageParser} expects
+     * {@code __chat} {@code chatroom}/{@code id} to equal {@link MapView#getDeviceUid} when the peer
+     * is the sender; it then rewrites parsed {@code conversationId} to the peer contact UID so the
+     * thread matches Contacts. If chatroom holds only the peer UID, ATAK skips that rewrite,
+     * {@code sendStatusMessage} targets the wrong contact, and GeoChat IDs stay
+     * {@code ANDROID-VETTE.ANDROID-VETTE}.
+     *
+     * @param localDeviceUidIfDm When non-null at same time {@code dmPeerConversationUid} is
+     *                           {@code ANDROID-*}, becomes {@code chatroom}/{@code id}/{@link CotEvent} UID suffix
+     *                           and remarks {@code to}; sender stays {@code senderUid} in {@code link}.
      */
     public static CotEvent buildChatCot(String senderUid, String senderCall,
-                                        String message, String chatRoom,
+                                        String message, String dmPeerConversationUid,
                                         long uniqueSuffix,
-                                        String chatGrpUid1ForDm) {
+                                        String localDeviceUidIfDm) {
         CotEvent event = new CotEvent();
 
-        String uid = "GeoChat." + senderUid + "." + chatRoom + "." + uniqueSuffix;
+        String convoSurface = dmPeerConversationUid;
+        if (localDeviceUidIfDm != null && !localDeviceUidIfDm.isEmpty()
+                && dmPeerConversationUid != null && dmPeerConversationUid.startsWith("ANDROID-")) {
+            convoSurface = localDeviceUidIfDm.trim();
+        }
+
+        String uid = "GeoChat." + senderUid + "." + convoSurface + "." + uniqueSuffix;
         event.setUID(uid);
         event.setType("b-t-f");
         event.setHow("h-g-i-g-o"); // human-generated
@@ -175,19 +187,19 @@ public class CotBuilder {
         chat.setAttribute("parent", "RootContactGroup");
         chat.setAttribute("groupOwner", "false");
         chat.setAttribute("messageId", uid);
-        chat.setAttribute("chatroom", chatRoom);
-        chat.setAttribute("id", chatRoom);
+        chat.setAttribute("chatroom", convoSurface);
+        chat.setAttribute("id", convoSurface);
         chat.setAttribute("senderCallsign", senderCall);
 
         CotDetail chatgrp = new CotDetail("chatgrp");
         chatgrp.setAttribute("uid0", senderUid);
-        String uid1 = chatRoom;
-        if (chatGrpUid1ForDm != null && !chatGrpUid1ForDm.isEmpty()
-                && chatRoom != null && chatRoom.startsWith("ANDROID-")) {
-            uid1 = chatGrpUid1ForDm;
+        String uid1 = convoSurface;
+        if (localDeviceUidIfDm != null && !localDeviceUidIfDm.isEmpty()
+                && dmPeerConversationUid != null && dmPeerConversationUid.startsWith("ANDROID-")) {
+            uid1 = localDeviceUidIfDm.trim();
         }
         chatgrp.setAttribute("uid1", uid1);
-        chatgrp.setAttribute("id", chatRoom);
+        chatgrp.setAttribute("id", dmPeerConversationUid != null ? dmPeerConversationUid : convoSurface);
         chat.addChild(chatgrp);
 
         detail.addChild(chat);
@@ -202,7 +214,7 @@ public class CotBuilder {
         // remarks element — contains the actual message
         CotDetail remarks = new CotDetail("remarks");
         remarks.setAttribute("source", "BAO.F.ATAK." + senderUid);
-        remarks.setAttribute("to", chatRoom);
+        remarks.setAttribute("to", convoSurface);
         remarks.setAttribute("time", formatCotTime(now));
         remarks.setInnerText(message);
         detail.addChild(remarks);
