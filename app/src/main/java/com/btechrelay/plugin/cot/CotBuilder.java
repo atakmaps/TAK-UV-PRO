@@ -141,13 +141,36 @@ public class CotBuilder {
      * @param chatRoom   Chat room identifier (use "All Chat Rooms" for broadcast)
      * @return CotEvent for the chat message
      */
-    /** Pass wire {@code messageId != 0} from BtechRelay chat packet so GeoChat IDs stay unique vs ATAK merge. */
+    /**
+     * For inbound DMs, {@link com.atakmap.android.chat.ChatMessageParser} expects
+     * {@code __chat} {@code chatroom}/{@code id} to equal {@link MapView#getDeviceUid} when the peer
+     * is the sender; it then rewrites parsed {@code conversationId} to the peer contact UID so the
+     * thread matches Contacts. If chatroom holds only the peer UID, ATAK skips that rewrite,
+     * {@code sendStatusMessage} targets the wrong contact, and GeoChat IDs stay
+     * {@code ANDROID-VETTE.ANDROID-VETTE}.
+     *
+     * @param localDeviceUidIfDm When non-null at same time {@code dmPeerConversationUid} is
+     *                           {@code ANDROID-*}, becomes {@code chatroom}/{@code id}/{@link CotEvent} UID suffix
+     *                           and remarks {@code to}; sender stays {@code senderUid} in {@code link}.
+     */
     public static CotEvent buildChatCot(String senderUid, String senderCall,
-                                        String message, String chatRoom,
-                                        long uniqueSuffix) {
+                                        String message, String dmPeerConversationUid,
+                                        long uniqueSuffix,
+                                        String localDeviceUidIfDm) {
         CotEvent event = new CotEvent();
 
-        String uid = "GeoChat." + senderUid + "." + chatRoom + "." + uniqueSuffix;
+        // CHAT3 (CoT with <chatgrp>): ChatMessageParser.getConversationUid reads __chat "chatroom"
+        // and resolves via getFirstContactWithCallsign — must be the peer's callsign (e.g. VETTE),
+        // not ANDROID-1729… or lookup fails and GeoChat routing breaks.
+        String chatroomAttr = dmPeerConversationUid;
+        String idAttr = dmPeerConversationUid;
+        if (localDeviceUidIfDm != null && !localDeviceUidIfDm.isEmpty()
+                && dmPeerConversationUid != null && dmPeerConversationUid.startsWith("ANDROID-")) {
+            idAttr = localDeviceUidIfDm.trim();
+            chatroomAttr = senderCall != null ? senderCall.trim() : dmPeerConversationUid;
+        }
+
+        String uid = "GeoChat." + senderUid + "." + idAttr + "." + uniqueSuffix;
         event.setUID(uid);
         event.setType("b-t-f");
         event.setHow("h-g-i-g-o"); // human-generated
@@ -169,14 +192,19 @@ public class CotBuilder {
         chat.setAttribute("parent", "RootContactGroup");
         chat.setAttribute("groupOwner", "false");
         chat.setAttribute("messageId", uid);
-        chat.setAttribute("chatroom", chatRoom);
-        chat.setAttribute("id", chatRoom);
+        chat.setAttribute("chatroom", chatroomAttr);
+        chat.setAttribute("id", idAttr);
         chat.setAttribute("senderCallsign", senderCall);
 
         CotDetail chatgrp = new CotDetail("chatgrp");
         chatgrp.setAttribute("uid0", senderUid);
-        chatgrp.setAttribute("uid1", chatRoom);
-        chatgrp.setAttribute("id", chatRoom);
+        String uid1 = idAttr;
+        if (localDeviceUidIfDm != null && !localDeviceUidIfDm.isEmpty()
+                && dmPeerConversationUid != null && dmPeerConversationUid.startsWith("ANDROID-")) {
+            uid1 = localDeviceUidIfDm.trim();
+        }
+        chatgrp.setAttribute("uid1", uid1);
+        chatgrp.setAttribute("id", dmPeerConversationUid != null ? dmPeerConversationUid : idAttr);
         chat.addChild(chatgrp);
 
         detail.addChild(chat);
@@ -191,7 +219,10 @@ public class CotBuilder {
         // remarks element — contains the actual message
         CotDetail remarks = new CotDetail("remarks");
         remarks.setAttribute("source", "BAO.F.ATAK." + senderUid);
-        remarks.setAttribute("to", chatRoom);
+        // Keep wire "to" as the peer thread; __chat id/chatroom carry local surface for CHAT3 parser remap.
+        remarks.setAttribute("to",
+                (dmPeerConversationUid != null && !dmPeerConversationUid.isEmpty())
+                        ? dmPeerConversationUid : chatroomAttr);
         remarks.setAttribute("time", formatCotTime(now));
         remarks.setInnerText(message);
         detail.addChild(remarks);

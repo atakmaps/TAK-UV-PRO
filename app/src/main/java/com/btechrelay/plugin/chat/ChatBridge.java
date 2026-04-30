@@ -6,8 +6,13 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.util.Log;
 
+import androidx.fragment.app.Fragment;
+
+import com.atakmap.android.chat.ChatManagerMapComponent;
 import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.maps.MapView;
+import com.atakmap.android.contact.Contact;
+import com.atakmap.android.contact.Contacts;
 import com.atakmap.coremap.cot.event.CotEvent;
 import com.atakmap.coremap.cot.event.CotDetail;
 
@@ -16,7 +21,13 @@ import com.btechrelay.plugin.bluetooth.BtConnectionManager;
 import com.btechrelay.plugin.cot.CotBridge;
 import com.btechrelay.plugin.crypto.EncryptionManager;
 import com.btechrelay.plugin.protocol.BtechRelayPacket;
+import com.btechrelay.plugin.util.CallsignUtil;
 import com.btechrelay.plugin.BtechRelayContactHandler;
+
+import java.lang.reflect.Field;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Bridges ATAK GeoChat messages with the radio link.
@@ -72,6 +83,28 @@ public class ChatBridge {
      */
     private volatile String openConversationId;
 
+    /**
+     * ATAK marks lines read in {@code ConversationFragment} via {@code markAllRead} →
+     * {@code Contact.setUnreadCount} without always broadcasting {@code markmessageread}.
+     * When native unread drops from &gt; 0 to 0, clear our plugin badge for that ANDROID-* uid.
+     */
+    private final ConcurrentHashMap<String, Integer> lastAtakUnreadByUid =
+            new ConcurrentHashMap<>();
+    private Contacts.OnContactsChangedListener contactsUnreadSyncListener;
+
+    /** Runs after ATAK delivers chat to the UI (fragment may not exist yet on first callback). */
+    private ChatManagerMapComponent.ChatMessageListener atakChatMessageListener;
+
+    /**
+     * Conversations with pending unread messages. Some ATAK paths open GeoChat without
+     * broadcasting OPEN_GEOCHAT/markmessageread; we poll for a visible ConversationFragment
+     * and clear unread as soon as the user is actually viewing the thread.
+     */
+    private final Set<String> pendingUnreadConversationUids = ConcurrentHashMap.newKeySet();
+    private volatile boolean unreadVisibilityPollRunning;
+
+    private volatile boolean disposed;
+
     public ChatBridge(Context pluginContext, MapView mapView) {
         this.pluginContext = pluginContext;
         this.mapView = mapView;
@@ -125,15 +158,45 @@ public class ChatBridge {
             chatRoom = toCallsign.trim();
         }
 
-        // Direct DM from a known peer: GeoChat threads by conversationId must match opening
-        // chat from Contacts (ANDROID-<callsign>). Using RF destination (e.g. VETTE1) as
-        // chatroom put messages under "VETTE1" while UI opens "ANDROID-JUNIOR" — blank thread.
+        // Direct DM: thread id must be the *remote* peer's ANDROID-* UID. Packets include a
+        // 6-byte "room" (RF destination) that is often THIS operator's callsign (e.g. JUNIOR).
+        // Local operator is rarely in btechIdToUid MapView.getDeviceUid() is ANDROID-1729… not
+        // ANDROID-JUNIOR — so resolveBtechUidForId("JUNIOR") is often NULL and we incorrectly
+        // used sender ANDROID-VETTE as both ends (GeoChat.ANDROID-VETTE.ANDROID-VETTE).
+        // Detect RF dest == configured local callsign (or its AX.25 form) FIRST, then use sender UID.
         if (!"All Chat Rooms".equalsIgnoreCase(chatRoom)) {
-            String peerUid = cotBridge.resolveBtechUidForId(fromCallsign);
-            if (peerUid != null && !peerUid.isEmpty()) {
-                Log.d(TAG, "Inbound DM: thread id " + chatRoom + " → " + peerUid
+            String destUid = cotBridge.resolveBtechUidForId(chatRoom);
+            String senderUid = cotBridge.resolveBtechUidForId(fromCallsign);
+            String selfUid = null;
+            try {
+                selfUid = MapView.getDeviceUid();
+            } catch (Exception ignored) {
+            }
+
+            boolean peerThreadResolved = false;
+            if (rfDestinationLooksLikeSelf(chatRoom.trim())
+                    && senderUid != null && !senderUid.isEmpty()
+                    && (selfUid == null || !selfUid.equals(senderUid))) {
+                Log.d(TAG, "Inbound DM: RF destination is local callsign \"" + chatRoom
+                        + "\" — thread → remote peer " + senderUid);
+                chatRoom = senderUid;
+                peerThreadResolved = true;
+            }
+
+            if (!peerThreadResolved && selfUid != null && destUid != null
+                    && selfUid.equals(destUid)
+                    && senderUid != null && !selfUid.equals(senderUid)) {
+                Log.d(TAG, "Inbound DM: destination is self — thread id → remote " + senderUid
+                        + " (RF room was " + chatRoom + ")");
+                chatRoom = senderUid;
+            } else if (!peerThreadResolved && senderUid != null && !senderUid.isEmpty()
+                    && (selfUid == null || !selfUid.equals(senderUid))) {
+                Log.d(TAG, "Inbound DM: thread id " + chatRoom + " → " + senderUid
                         + " (match contact chat)");
-                chatRoom = peerUid;
+                chatRoom = senderUid;
+            } else if (!peerThreadResolved && destUid != null && !destUid.isEmpty()
+                    && (selfUid == null || !selfUid.equals(destUid))) {
+                chatRoom = destUid;
             }
         }
 
@@ -146,14 +209,56 @@ public class ChatBridge {
             String open = openConversationId;
             if (open != null && open.equals(chatRoom)) {
                 // Conversation is open; treat as already-seen.
-                BtechRelayContactHandler.clearUnread(chatRoom);
+                clearUnreadLocal(chatRoom);
             } else {
                 BtechRelayContactHandler.incrementUnreadOnce(chatRoom, radioPacketMessageId, message);
+                pendingUnreadConversationUids.add(chatRoom);
+                startUnreadVisibilityPollIfNeeded();
             }
         }
 
         cotBridge.injectChatCot(fromCallsign, message, chatRoom,
                 radioPacketMessageId);
+    }
+
+    /** True if the RF payload "chat room" equals this operator's callsign or its AX.25 form. */
+    private boolean rfDestinationLooksLikeSelf(String room) {
+        if (room == null || room.isEmpty() || localCallsign == null) {
+            return false;
+        }
+        String r = room.trim();
+        String loc = localCallsign.trim();
+        if (loc.isEmpty()) {
+            return false;
+        }
+        if (loc.equalsIgnoreCase(r)) {
+            return true;
+        }
+        try {
+            if (CallsignUtil.toRadioCallsign(loc).equalsIgnoreCase(r)) {
+                return true;
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            com.atakmap.android.maps.PointMapItem selfMarker = mapView.getSelfMarker();
+            if (selfMarker != null) {
+                String m = selfMarker.getMetaString("callsign", null);
+                if (m != null) {
+                    if (m.trim().equalsIgnoreCase(r)) {
+                        return true;
+                    }
+                    try {
+                        if (CallsignUtil.toRadioCallsign(m.trim()).equalsIgnoreCase(r)) {
+                            return true;
+                        }
+                    } catch (Exception ignored2) {
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     /**
@@ -186,9 +291,22 @@ public class ChatBridge {
                 public void onReceive(Context context, Intent intent) {
                     if (intent == null) return;
                     if (!"com.atakmap.android.OPEN_GEOCHAT".equals(intent.getAction())) return;
-                    String convo = intent.getStringExtra("conversationId");
+                    // ATAK (ChatManagerMapComponent) puts conversationId inside the
+                    // parcelable "message" bundle, not as top-level intent extras — without
+                    // this, opening GeoChat from the main chat menu never set openConversationId
+                    // and the Contacts badge stayed stuck until Contacts pane opened chat.
+                    String convo = null;
+                    android.os.Bundle msgBundle = getOpenGeoChatMessageBundle(intent);
+                    if (msgBundle != null) {
+                        convo = msgBundle.getString("conversationId");
+                        if (convo == null || convo.isEmpty()) {
+                            convo = msgBundle.getString("chatroom");
+                        }
+                    }
                     if (convo == null || convo.isEmpty()) {
-                        // Some builds use "chatroom" / "id" instead.
+                        convo = intent.getStringExtra("conversationId");
+                    }
+                    if (convo == null || convo.isEmpty()) {
                         convo = intent.getStringExtra("chatroom");
                     }
                     if (convo == null || convo.isEmpty()) {
@@ -197,7 +315,8 @@ public class ChatBridge {
                     if (convo != null && !convo.isEmpty()) {
                         openConversationId = convo;
                         if (convo.startsWith("ANDROID-")) {
-                            BtechRelayContactHandler.clearUnread(convo);
+                            clearUnreadLocal(convo);
+                            scheduleClearUnreadWhenGeoChatFragmentVisible(convo);
                         }
                     }
                 }
@@ -242,7 +361,7 @@ public class ChatBridge {
                     String convo = b.getString("conversationId");
                     if (convo == null || convo.isEmpty()) return;
                     if (convo.startsWith("ANDROID-")) {
-                        BtechRelayContactHandler.clearUnread(convo);
+                        clearUnreadLocal(convo);
                     }
                 }
             };
@@ -253,7 +372,206 @@ public class ChatBridge {
         } catch (Exception ignored) {
         }
 
+        try {
+            contactsUnreadSyncListener = new Contacts.OnContactsChangedListener() {
+                @Override
+                public void onContactsSizeChange(Contacts contacts) {
+                }
+
+                @Override
+                public void onContactChanged(String contactUid) {
+                    if (contactUid == null || !contactUid.startsWith("ANDROID-")) {
+                        return;
+                    }
+                    try {
+                        Contact c = Contacts.getInstance().getContactByUuid(contactUid);
+                        if (c == null) {
+                            return;
+                        }
+                        int now = c.getUnreadCount();
+                        Integer prev = lastAtakUnreadByUid.put(contactUid, now);
+                        if (prev != null && prev > 0 && now == 0) {
+                            Log.d(TAG, "ATAK native unread cleared for " + contactUid
+                                    + " — clearing plugin Contacts badge");
+                            clearUnreadLocal(contactUid);
+                        }
+                    } catch (Exception e) {
+                        Log.w(TAG, "contacts unread sync", e);
+                    }
+                }
+            };
+            Contacts.getInstance().addListener(contactsUnreadSyncListener);
+        } catch (Exception e) {
+            Log.w(TAG, "Could not register Contacts unread sync listener", e);
+        }
+
+        registerAtakChatMessageListenerWhenReady(0);
+
         Log.d(TAG, "Outgoing chat relay started");
+    }
+
+    private void registerAtakChatMessageListenerWhenReady(final int attempt) {
+        if (disposed || atakChatMessageListener != null) {
+            return;
+        }
+        Runnable r = new Runnable() {
+            @Override
+            public void run() {
+                if (disposed || atakChatMessageListener != null) {
+                    return;
+                }
+                try {
+                    ChatManagerMapComponent cmmc = ChatManagerMapComponent.getInstance();
+                    if (cmmc != null) {
+                        atakChatMessageListener =
+                                new ChatManagerMapComponent.ChatMessageListener() {
+                                    @Override
+                                    public void chatMessageReceived(android.os.Bundle bundle) {
+                                        maybeClearPluginUnreadWhenGeoChatUiShows(bundle);
+                                    }
+                                };
+                        cmmc.addChatMessageListener(atakChatMessageListener);
+                        Log.d(TAG, "Registered ChatManagerMapComponent.ChatMessageListener");
+                        return;
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "ChatManagerMapComponent listener registration", e);
+                }
+                if (!disposed && attempt < 12 && mapView != null) {
+                    mapView.postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            registerAtakChatMessageListenerWhenReady(attempt + 1);
+                        }
+                    }, 500L);
+                }
+            }
+        };
+        if (mapView != null) {
+            mapView.post(r);
+        } else {
+            r.run();
+        }
+    }
+
+    /**
+     * When ATAK has finished routing a chat line, clear our Contacts badge if that
+     * conversation's {@link com.atakmap.android.chat.ConversationFragment} is on-screen
+     * (main GeoChat path — {@code Contact.getUnreadCount} often stays 0 for plugin UIDs).
+     */
+    private void maybeClearPluginUnreadWhenGeoChatUiShows(android.os.Bundle messageBundle) {
+        if (disposed || messageBundle == null) return;
+        String convo = messageBundle.getString("conversationId");
+        if (convo == null || !convo.startsWith("ANDROID-")) {
+            return;
+        }
+        postClearUnreadIfFragmentVisible(convo, 0);
+        postClearUnreadIfFragmentVisible(convo, 120);
+        postClearUnreadIfFragmentVisible(convo, 400);
+    }
+
+    private void postClearUnreadIfFragmentVisible(final String conversationId, long delayMs) {
+        Runnable r = new Runnable() {
+            @Override
+            public void run() {
+                if (disposed) {
+                    return;
+                }
+                try {
+                    if (isGeoChatConversationFragmentVisible(conversationId)) {
+                        clearUnreadLocal(conversationId);
+                        Log.d(TAG, "Plugin unread cleared (GeoChat fragment visible) " + conversationId);
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "clear unread fragment check", e);
+                }
+            }
+        };
+        if (mapView != null) {
+            mapView.postDelayed(r, delayMs);
+        }
+    }
+
+    /** After OPEN_GEOCHAT, fragment creation can lag; poll briefly until it is resumed. */
+    private void scheduleClearUnreadWhenGeoChatFragmentVisible(String conversationId) {
+        postClearUnreadIfFragmentVisible(conversationId, 0);
+        postClearUnreadIfFragmentVisible(conversationId, 80);
+        postClearUnreadIfFragmentVisible(conversationId, 250);
+        postClearUnreadIfFragmentVisible(conversationId, 700);
+    }
+
+    /**
+     * ATAK keeps {@code ChatManagerMapComponent.fragmentMap} (conversationId → fragment).
+     * Not a public API — reflect once per check, catch failures across ATAK versions.
+     */
+    private boolean isGeoChatConversationFragmentVisible(String conversationId) {
+        if (conversationId == null || conversationId.isEmpty()) {
+            return false;
+        }
+        try {
+            Field f = ChatManagerMapComponent.class.getDeclaredField("fragmentMap");
+            f.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> fm = (Map<String, Object>) f.get(null);
+            if (fm == null) {
+                return false;
+            }
+            Object o = fm.get(conversationId);
+            if (!(o instanceof Fragment)) {
+                return false;
+            }
+            Fragment fr = (Fragment) o;
+            return fr.isResumed() && fr.isVisible();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private void clearUnreadLocal(String conversationId) {
+        if (conversationId == null) return;
+        pendingUnreadConversationUids.remove(conversationId);
+        BtechRelayContactHandler.clearUnread(conversationId);
+        if (pendingUnreadConversationUids.isEmpty()) {
+            unreadVisibilityPollRunning = false;
+        }
+    }
+
+    private void startUnreadVisibilityPollIfNeeded() {
+        if (disposed || unreadVisibilityPollRunning || mapView == null) {
+            return;
+        }
+        unreadVisibilityPollRunning = true;
+        mapView.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (disposed) {
+                    unreadVisibilityPollRunning = false;
+                    return;
+                }
+                if (pendingUnreadConversationUids.isEmpty()) {
+                    unreadVisibilityPollRunning = false;
+                    return;
+                }
+                try {
+                    // Iterate snapshot to avoid concurrent modification churn.
+                    for (String uid : pendingUnreadConversationUids.toArray(new String[0])) {
+                        if (uid == null) continue;
+                        if (isGeoChatConversationFragmentVisible(uid)) {
+                            clearUnreadLocal(uid);
+                            Log.d(TAG, "Plugin unread cleared (poll visible) " + uid);
+                        }
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "unread visibility poll", e);
+                }
+                // Keep polling while there are pending unread threads.
+                if (!pendingUnreadConversationUids.isEmpty()) {
+                    mapView.postDelayed(this, 500L);
+                } else {
+                    unreadVisibilityPollRunning = false;
+                }
+            }
+        }, 200L);
     }
 
     private static android.os.Bundle getMessageBundleExtra(Intent intent) {
@@ -264,6 +582,20 @@ public class ChatBridge {
                         android.os.Bundle.class);
             }
             return intent.getParcelableExtra("MESSAGE");
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Bundle from {@code com.atakmap.android.OPEN_GEOCHAT} (key {@code "message"}). */
+    private static android.os.Bundle getOpenGeoChatMessageBundle(Intent intent) {
+        if (intent == null) return null;
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                return intent.getParcelableExtra("message", android.os.Bundle.class);
+            }
+            android.os.Parcelable p = intent.getParcelableExtra("message");
+            return p instanceof android.os.Bundle ? (android.os.Bundle) p : null;
         } catch (Exception e) {
             return null;
         }
@@ -469,6 +801,9 @@ public class ChatBridge {
      * Clean up resources.
      */
     public void dispose() {
+        disposed = true;
+        pendingUnreadConversationUids.clear();
+        unreadVisibilityPollRunning = false;
         if (chatReceiver != null) {
             try {
                 AtakBroadcast.getInstance()
@@ -505,6 +840,26 @@ public class ChatBridge {
             }
             chatClosedReceiver = null;
         }
+        if (contactsUnreadSyncListener != null) {
+            try {
+                Contacts.getInstance().removeListener(contactsUnreadSyncListener);
+            } catch (Exception e) {
+                Log.w(TAG, "Error unregistering Contacts listener", e);
+            }
+            contactsUnreadSyncListener = null;
+        }
+        if (atakChatMessageListener != null) {
+            try {
+                ChatManagerMapComponent cmmc = ChatManagerMapComponent.getInstance();
+                if (cmmc != null) {
+                    cmmc.removeChatMessageListener(atakChatMessageListener);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Error unregistering ChatManager listener", e);
+            }
+            atakChatMessageListener = null;
+        }
+        lastAtakUnreadByUid.clear();
         Log.d(TAG, "ChatBridge disposed");
     }
 }

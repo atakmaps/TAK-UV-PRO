@@ -414,10 +414,13 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
             beaconIntervalText.setText(beaconSec + "s");
         }
 
-        // Team color
-        String teamColor = SettingsFragment.getTeamColor(ctx);
-        if (teamColorText != null) {
-            teamColorText.setText(teamColor != null ? teamColor : "Cyan");
+        // Team color (ATAK preference)
+        try {
+            String teamColor = com.atakmap.android.chat.ChatManagerMapComponent.getTeamName();
+            if (teamColorText != null) {
+                teamColorText.setText(teamColor != null ? teamColor : "Cyan");
+            }
+        } catch (Exception ignored) {
         }
     }
 
@@ -526,26 +529,7 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
         editBeacon.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
         layout.addView(editBeacon);
 
-        // Team color field
-        TextView labelColor = new TextView(ctx);
-        labelColor.setText("\nTeam Color");
-        labelColor.setTextColor(0xFFAAAAAA);
-        layout.addView(labelColor);
-        final String[] colors = {"Cyan", "Green", "Blue", "Red", "Yellow",
-                "Orange", "White", "Magenta", "Maroon", "Purple", "Dark Green", "Dark Blue"};
-        android.widget.Spinner spinnerColor = new android.widget.Spinner(ctx);
-        android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(
-                ctx, android.R.layout.simple_spinner_dropdown_item, colors);
-        spinnerColor.setAdapter(adapter);
-        String currentColor = prefs.getString(SettingsFragment.PREF_TEAM_COLOR,
-                SettingsFragment.DEFAULT_TEAM_COLOR);
-        for (int i = 0; i < colors.length; i++) {
-            if (colors[i].equals(currentColor)) {
-                spinnerColor.setSelection(i);
-                break;
-            }
-        }
-        layout.addView(spinnerColor);
+        // Team color is controlled by ATAK core settings (locationTeam). Plugin no longer overrides it.
 
         scrollView.addView(layout);
 
@@ -561,10 +545,6 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
                         if (beaconIntervalText != null)
                             beaconIntervalText.setText(newBeacon + "s");
                     }
-
-                    String newColor = spinnerColor.getSelectedItem().toString();
-                    editor.putString(SettingsFragment.PREF_TEAM_COLOR, newColor);
-                    if (teamColorText != null) teamColorText.setText(newColor);
 
                     editor.apply();
                     appendLog("Settings saved");
