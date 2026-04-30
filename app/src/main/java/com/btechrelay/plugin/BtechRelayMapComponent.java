@@ -82,9 +82,6 @@ try {
         // 1. CotBridge (needs plugin context + MapView)
         cotBridge = new CotBridge(context, view);
         cotBridge.setLocalCallsign(callsign);
-        // Use ATAK's core "team" setting (locationTeam / ChatManagerMapComponent.getTeamName()),
-        // not a plugin-managed color that can drift.
-        cotBridge.setTeamColor(com.atakmap.android.chat.ChatManagerMapComponent.getTeamName());
 
         // GeoChat DM CoT needs local device UID in chatgrp.uid1; resolve on UI thread once
         // so Bluetooth RX thread can inject chat without NULL getDeviceUid().
@@ -110,6 +107,7 @@ try {
         chatBridge = new ChatBridge(context, view);
         chatBridge.setLocalCallsign(callsign);
         chatBridge.setCotBridge(cotBridge);
+        cotBridge.setChatBridge(chatBridge);
 
         // 3. ContactTracker (needs CotBridge for injecting CoT events)
         contactTracker = new ContactTracker(cotBridge);
@@ -269,8 +267,7 @@ try {
                 beaconHandler.postDelayed(this, intervalSec * 1000L);
             }
         };
-        int initialDelay = SettingsFragment.getBeaconIntervalSec(
-                pluginContext) * 1000;
+        int initialDelay = 30_000; // always send first beacon 30s after startup/reconnect
         if (initialDelay < 1000) initialDelay = 1000;
         beaconHandler.postDelayed(beaconRunnable, initialDelay);
     }

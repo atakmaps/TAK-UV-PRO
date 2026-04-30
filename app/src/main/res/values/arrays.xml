@@ -14,4 +14,28 @@
         <item>300</item>
         <item>600</item>
     </string-array>
+    <string-array name="retry_interval_labels">
+        <item>1 minute</item>
+        <item>2 minutes</item>
+        <item>5 minutes</item>
+        <item>10 minutes</item>
+    </string-array>
+    <string-array name="retry_interval_values">
+        <item>1</item>
+        <item>2</item>
+        <item>5</item>
+        <item>10</item>
+    </string-array>
+    <string-array name="retry_max_labels">
+        <item>1 retry</item>
+        <item>2 retries</item>
+        <item>3 retries</item>
+        <item>5 retries</item>
+    </string-array>
+    <string-array name="retry_max_values">
+        <item>1</item>
+        <item>2</item>
+        <item>3</item>
+        <item>5</item>
+    </string-array>
 </resources>

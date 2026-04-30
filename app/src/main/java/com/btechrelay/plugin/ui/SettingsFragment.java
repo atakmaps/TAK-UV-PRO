@@ -26,9 +26,13 @@ public class SettingsFragment extends PluginPreferenceFragment
     public static final String PREF_AUTO_RECONNECT = "btechrelay_auto_reconnect";
     public static final String PREF_ENCRYPTION_ENABLED = "btechrelay_encryption_enabled";
     public static final String PREF_ENCRYPTION_PASSPHRASE = "btechrelay_encryption_passphrase";
+    public static final String PREF_RETRY_INTERVAL_MIN = "btechrelay_retry_interval_min";
+    public static final String PREF_RETRY_MAX = "btechrelay_retry_max";
 
-    public static final String DEFAULT_BEACON_INTERVAL = "60";
+    public static final String DEFAULT_BEACON_INTERVAL = "300";
     public static final boolean DEFAULT_AUTO_RECONNECT = true;
+    public static final String DEFAULT_RETRY_INTERVAL_MIN = "2";
+    public static final String DEFAULT_RETRY_MAX = "3";
 
     private static Context staticPluginContext;
 
@@ -87,7 +91,18 @@ public class SettingsFragment extends PluginPreferenceFragment
                     PREF_BEACON_INTERVAL, DEFAULT_BEACON_INTERVAL);
             beaconPref.setSummary("Every " + interval + " seconds");
         }
-    }
+
+        Preference retryIntervalPref = findPreference(PREF_RETRY_INTERVAL_MIN);
+        if (retryIntervalPref != null) {
+            String mins = prefs.getString(PREF_RETRY_INTERVAL_MIN, DEFAULT_RETRY_INTERVAL_MIN);
+            retryIntervalPref.setSummary("Retry after " + mins + " minute(s) with no ACK");
+        }
+
+        Preference retryMaxPref = findPreference(PREF_RETRY_MAX);
+        if (retryMaxPref != null) {
+            String max = prefs.getString(PREF_RETRY_MAX, DEFAULT_RETRY_MAX);
+            retryMaxPref.setSummary("Up to " + max + " retransmit attempt(s) before failure");
+        }    }
 
     @Override
     public String getSubTitle() {
@@ -127,6 +142,26 @@ public class SettingsFragment extends PluginPreferenceFragment
             return Integer.parseInt(val);
         } catch (NumberFormatException e) {
             return 60;
+        }
+    }
+
+    public static long getRetryIntervalMs(Context context) {
+        String val = getPrefs(context)
+                .getString(PREF_RETRY_INTERVAL_MIN, DEFAULT_RETRY_INTERVAL_MIN);
+        try {
+            return Long.parseLong(val) * 60_000L;
+        } catch (NumberFormatException e) {
+            return 2 * 60_000L;
+        }
+    }
+
+    public static int getMaxChatRetries(Context context) {
+        String val = getPrefs(context)
+                .getString(PREF_RETRY_MAX, DEFAULT_RETRY_MAX);
+        try {
+            return Math.max(1, Integer.parseInt(val));
+        } catch (NumberFormatException e) {
+            return 3;
         }
     }
 

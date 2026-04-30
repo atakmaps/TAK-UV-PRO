@@ -62,12 +62,16 @@ PacketRouter
   ├─ if BtechRelayPacket.Chat:
   │     ↓
   │   ChatBridge.injectRadioMessage(...)
+  │     ├─ records wire mid in pendingReadAcksByConversation[senderUID]
   │     ↓ (build GeoChat CoT)
   │   CotBridge.injectChatCot(...)
   │     ↓
   │   ATAK GeoChat parser creates/updates thread + message
   │     ↓
   │   BtechRelayContactHandler increments NotificationCount (unread badge)
+  │     ↓
+  │   PacketRouter sends ACK_KIND_DELIVERED back to sender over RF
+  │     (ACK_KIND_READ is sent later, when user opens the conversation — see clearUnreadLocal)
   ├─ if BtechRelayPacket.Gps/PLI:
   │     ↓
   │   CotBridge.injectPositionCot(...)
@@ -177,8 +181,19 @@ If enabled, payload is encrypted (AES-256-CBC derived from passphrase). All node
 
 ## Known issues / design decisions (as of this handoff)
 
-### Team color semantics (important)
-At present, inbound radio beacons do not reliably carry the sender’s team; the plugin may assign a single team value when injecting markers. This can make remote contacts appear in the **local operator’s** team color. This is a design/format decision to revisit later.
+### GeoChat delivery receipts (delivered + read checkmarks)
+
+Inbound `TYPE_CHAT` RF packets trigger two `TYPE_ACK` packets back to the sender:
+
+- **ACK_KIND_DELIVERED** — sent immediately from `PacketRouter` when the chat packet is processed (before ATAK even stores the message).
+- **ACK_KIND_READ** — sent when the recipient user opens the conversation. The wire `messageId` is stored per conversation UID in `ChatBridge.pendingReadAcksByConversation` during `injectRadioMessage`. When `clearUnreadLocal(conversationId)` fires (triggered by the contacts-change listener or conversation-open detection), all pending wire mids for that conversation are drained and transmitted as `ACK_KIND_READ`.
+
+On the **sender** side, received ACKs are handled in `ChatBridge`: `outboundWireMidToLocalLineUid` maps wire mid → GeoChat line UID; the receipt CoT is built by `CotBuilder.buildGeoChatReceiptCot` and injected via `CotBridge.injectGeoChatReceipt`. ATAK's `GeoChatService` looks up the message by the **bare UUID suffix** of the GeoChat line UID (not the full `GeoChat.*` string) — the CoT UID must match this or the DB lookup returns null and the checkmark never appears.
+
+Key gotcha: `com.atakmap.chat.markmessageread` is **not** reliably broadcast by ATAK just from opening a conversation — do not rely on it as the primary read-trigger.
+
+### Team color semantics (fixed)
+Outbound GPS beacons embed the sender’s ATAK **locationTeam** (same string as native SA). Inbound position CoT uses that value for **`detail/__group`**, so map markers match native networked contacts. The Contacts pane lists **`IndividualContact` linked to the CoT `MapItem`** (`PacketRouter.linkRadioIndividualContactToMapMarker`) so list/tint behavior matches ATAK’s native contacts UI. Older peers that omit the team extension still default missing team to **Cyan** in CoT (not the receiver’s team).
 
 ### Timing: ATAK initialization
 Some ATAK singletons (e.g., `ChatManagerMapComponent`) may not be ready when the plugin is created. Where necessary, code retries registration after startup.

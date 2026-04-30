@@ -24,10 +24,17 @@ import com.btechrelay.plugin.protocol.BtechRelayPacket;
 import com.btechrelay.plugin.util.CallsignUtil;
 import com.btechrelay.plugin.BtechRelayContactHandler;
 
+import com.atakmap.android.util.NotificationUtil;
+import com.btechrelay.plugin.ui.SettingsFragment;
+
 import java.lang.reflect.Field;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Bridges ATAK GeoChat messages with the radio link.
@@ -104,6 +111,78 @@ public class ChatBridge {
     private volatile boolean unreadVisibilityPollRunning;
 
     private volatile boolean disposed;
+
+    /**
+     * Wire {@link BtechRelayPacket} chat {@code messageId} → sender's local GeoChat line UID
+     * (from {@code COT_PLACED}), used to apply RF {@link BtechRelayPacket#TYPE_ACK} receipts.
+     */
+    private final ConcurrentHashMap<Integer, String> outboundWireMidToLocalLineUid =
+            new ConcurrentHashMap<>();
+    private static final int MAX_OUTBOUND_ACK_ENTRIES = 384;
+
+    /**
+     * Inbound wire mid ACKs waiting for the user to open the conversation (READ receipt).
+     * Key: ANDROID-* conversation UID on this device.
+     * Value: set of wire message ids received but not yet READ-acked over RF.
+     */
+    private final ConcurrentHashMap<String, Set<Integer>> pendingReadAcksByConversation =
+            new ConcurrentHashMap<>();
+
+    // --- Outbound retry / delivery-failure tracking ---
+
+    /** Retry a send if no DELIVERED ACK received within this window. */
+    private static final long RETRY_INTERVAL_MS = 2 * 60 * 1000L; // 2 minutes
+
+    /** Number of retransmit attempts before declaring failure. */
+    private static final int MAX_CHAT_RETRIES = 3;
+
+    /** Tracks unacknowledged outbound messages for retry and failure notification. */
+    private final ConcurrentHashMap<Integer, PendingOutboundChat> pendingOutboundChats =
+            new ConcurrentHashMap<>();
+
+    /**
+     * Messages that exhausted all retries. Keyed by peer callsign (bare, no "ANDROID-" prefix).
+     * Re-sent automatically when the peer's beacon or ping is received.
+     */
+    private final ConcurrentHashMap<String, java.util.Queue<PendingOutboundChat>> failedOutboundChatsByPeer =
+            new ConcurrentHashMap<>();
+
+    /** Single-thread executor for retry watchdog scheduling. */
+    private final ScheduledExecutorService retryExecutor =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "BtechRelay-ChatRetry");
+                t.setDaemon(true);
+                return t;
+            });
+
+    /** Tracks all parameters needed to retransmit an unacknowledged outbound chat. */
+    private static final class PendingOutboundChat {
+        final int wireMid;
+        final String sender;
+        final String room;
+        final String message;
+        final String geoChatLineUid; // may be null
+        volatile int retryCount;
+
+        PendingOutboundChat(int wireMid, String sender, String room, String message, String geoChatLineUid) {
+            this.wireMid = wireMid;
+            this.sender = sender;
+            this.room = room;
+            this.message = message;
+            this.geoChatLineUid = geoChatLineUid;
+            this.retryCount = 0;
+        }
+    }
+
+    /**
+     * Skip sending the same GeoChat line twice when both PreSend and COT_PLACED (or CommsLogger)
+     * observe one user action.
+     */
+    private final Object outboundGeoChatDedupeLock = new Object();
+    private String lastOutboundGeoChatDedupeUid;
+    private long lastOutboundGeoChatDedupeMs;
+
+    private volatile boolean loggedPluginChatBundleKeysMissingUid;
 
     public ChatBridge(Context pluginContext, MapView mapView) {
         this.pluginContext = pluginContext;
@@ -206,6 +285,10 @@ public class ChatBridge {
         // Maintain a plugin unread counter for Contacts icon badge.
         // (Native GeoChat unread tracking is not reliably reflected for plugin contacts on all builds.)
         if (chatRoom != null && chatRoom.startsWith("ANDROID-")) {
+            // Track wire mid for READ ACK once the user opens the conversation.
+            if (radioPacketMessageId > 0) {
+                addPendingReadAck(chatRoom, radioPacketMessageId);
+            }
             String open = openConversationId;
             if (open != null && open.equals(chatRoom)) {
                 // Conversation is open; treat as already-seen.
@@ -362,6 +445,11 @@ public class ChatBridge {
                     if (convo == null || convo.isEmpty()) return;
                     if (convo.startsWith("ANDROID-")) {
                         clearUnreadLocal(convo);
+                    }
+                    Integer wireMid = extractWireMidFromMarkReadBundle(b);
+                    String uid = convo.trim();
+                    if (wireMid != null && cotBridge != null && cotBridge.isBtechContactUid(uid)) {
+                        sendRadioChatAck(wireMid, BtechRelayPacket.ACK_KIND_READ);
                     }
                 }
             };
@@ -534,6 +622,30 @@ public class ChatBridge {
         if (pendingUnreadConversationUids.isEmpty()) {
             unreadVisibilityPollRunning = false;
         }
+        drainAndSendReadAcks(conversationId);
+    }
+
+    /** Record an inbound wire mid that should be READ-acked when the user opens this conversation. */
+    private void addPendingReadAck(String conversationUid, int wireMid) {
+        Set<Integer> existing = pendingReadAcksByConversation.get(conversationUid);
+        if (existing == null) {
+            Set<Integer> fresh = ConcurrentHashMap.newKeySet();
+            existing = pendingReadAcksByConversation.putIfAbsent(conversationUid, fresh);
+            if (existing == null) existing = fresh;
+        }
+        existing.add(wireMid);
+    }
+
+    /** Send READ ACKs over RF for all pending wire mids for this conversation, then clear them. */
+    private void drainAndSendReadAcks(String conversationId) {
+        if (conversationId == null || !conversationId.startsWith("ANDROID-")) return;
+        if (cotBridge == null || !cotBridge.isBtechContactUid(conversationId)) return;
+        Set<Integer> mids = pendingReadAcksByConversation.remove(conversationId);
+        if (mids == null || mids.isEmpty()) return;
+        for (Integer mid : mids) {
+            Log.d(TAG, "Sending READ ACK mid=" + mid + " conversation=" + conversationId);
+            sendRadioChatAck(mid, BtechRelayPacket.ACK_KIND_READ);
+        }
     }
 
     private void startUnreadVisibilityPollIfNeeded() {
@@ -620,6 +732,11 @@ public class ChatBridge {
             return false;
         }
 
+        String lineUid = extractGeoChatLineUidFromBundle(b);
+        if (lineUid == null) {
+            maybeLogPluginGeoChatBundleKeysMissingUid(b);
+        }
+
         String room = "All Chat Rooms";
         if (conversationId != null) {
             String cid = conversationId.trim();
@@ -632,8 +749,9 @@ public class ChatBridge {
             }
         }
 
-        Log.d(TAG, "Relay outgoing plugin-contact GeoChat to radio room=" + room);
-        sendChatOverRadio(localCallsign, room, msg);
+        Log.d(TAG, "Relay outgoing plugin-contact GeoChat to radio room=" + room
+                + " lineUid=" + lineUid);
+        sendChatOverRadio(localCallsign, room, msg, lineUid);
         return true;
     }
 
@@ -712,8 +830,10 @@ public class ChatBridge {
                 if (!shouldRelay) return;
                 if (message == null || message.isEmpty()) return;
 
-                Log.d(TAG, "Relaying outgoing chat (SEND_MESSAGE) to radio: " + message);
-                sendChatOverRadio(localCallsign, chatRoom, message);
+                String lineUid = extractGeoChatLineUidFromIntent(intent);
+                Log.d(TAG, "Relaying outgoing chat (SEND_MESSAGE) to radio: " + message
+                        + " lineUid=" + lineUid);
+                sendChatOverRadio(localCallsign, chatRoom, message, lineUid);
                 return;
             }
 
@@ -756,8 +876,13 @@ public class ChatBridge {
                 return;
             }
 
-            Log.d(TAG, "Relaying outgoing chat to radio: " + message);
-            sendChatOverRadio(localCallsign, chatRoom, message);
+            String lineUid = resolveOutboundGeoChatLineUid(event);
+            if (skipIfDuplicateOutboundGeoChatLine(lineUid)) {
+                return;
+            }
+
+            Log.d(TAG, "Relaying outgoing chat to radio: " + message + " lineUid=" + lineUid);
+            sendChatOverRadio(localCallsign, chatRoom, message, lineUid);
 
         } catch (Exception e) {
             Log.e(TAG, "Error handling outgoing chat", e);
@@ -765,17 +890,100 @@ public class ChatBridge {
     }
 
     /**
+     * PreSend / CommsLogger path: one compact TYPE_CHAT per outbound b-t-f with a registered
+     * wire id for RF ACK correlation (delivered / read ticks).
+     */
+    public void relayOutboundGeoChatCotAsCompact(CotEvent event) {
+        if (!relayOutgoing) {
+            return;
+        }
+        if (btManager == null || !btManager.isConnected()) {
+            return;
+        }
+        if (event == null || !"b-t-f".equals(event.getType())) {
+            return;
+        }
+        if (cotBridge == null || !cotBridge.shouldRelayGeoChatToRadio(event)) {
+            return;
+        }
+
+        String lineUid = resolveOutboundGeoChatLineUid(event);
+        if (skipIfDuplicateOutboundGeoChatLine(lineUid)) {
+            return;
+        }
+
+        CotDetail detail = event.getDetail();
+        if (detail == null) {
+            return;
+        }
+
+        String message = null;
+        String chatRoom = "All Chat Rooms";
+
+        CotDetail remarks = detail.getFirstChildByName(0, "remarks");
+        if (remarks != null) {
+            message = remarks.getInnerText();
+        }
+
+        CotDetail chat = detail.getFirstChildByName(0, "__chat");
+        if (chat == null) {
+            chat = detail.getFirstChildByName(0, "chat");
+        }
+        if (chat != null) {
+            String room = chat.getAttribute("chatroom");
+            if (room != null && !room.isEmpty()) {
+                chatRoom = room;
+            }
+        }
+
+        if (message == null || message.isEmpty()) {
+            return;
+        }
+
+        Log.d(TAG, "Relay outbound GeoChat (compact PreSend/CommsLogger) room=" + chatRoom
+                + " lineUid=" + lineUid);
+        sendChatOverRadio(localCallsign, chatRoom, message, lineUid);
+    }
+
+    /**
      * Send a chat message over the radio link.
      */
     public void sendChatOverRadio(String sender, String room, String message) {
+        sendChatOverRadio(sender, room, message, (String) null);
+    }
+
+    /**
+     * @param originatingGeoChatLine when non-null (e.g. from {@code COT_PLACED}), associates the
+     *                                 wire {@code messageId} with this GeoChat line UID for RF receipts.
+     */
+    public void sendChatOverRadio(String sender, String room, String message,
+                                  CotEvent originatingGeoChatLine) {
+        sendChatOverRadio(sender, room, message,
+                originatingGeoChatLine == null ? null
+                        : resolveOutboundGeoChatLineUid(originatingGeoChatLine));
+    }
+
+    /**
+     * @param geoChatLineUidOrNull GeoChat line UID ({@code GeoChat....}); when set, RF ACKs can
+     *                             update delivered/read state for that line.
+     */
+    public void sendChatOverRadio(String sender, String room, String message,
+                                  String geoChatLineUidOrNull) {
         if (btManager == null || !btManager.isConnected()) {
             Log.w(TAG, "Not connected — cannot send chat");
             return;
         }
 
         try {
+            int wireMid = BtechRelayPacket.allocateChatWireMessageId();
+            if (geoChatLineUidOrNull != null && geoChatLineUidOrNull.startsWith("GeoChat.")) {
+                outboundWireMidToLocalLineUid.put(wireMid, geoChatLineUidOrNull.trim());
+                trimOutboundAckMap();
+            }
+
             BtechRelayPacket packet = BtechRelayPacket.createChatPacket(
-                    com.btechrelay.plugin.util.CallsignUtil.toRadioCallsign(sender), room, message);
+                    com.btechrelay.plugin.util.CallsignUtil.toRadioCallsign(sender),
+                    room, wireMid, message);
 
             byte[] packetBytes = packet.encode();
             // Encrypt if enabled
@@ -792,8 +1000,390 @@ public class ChatBridge {
 
             Log.d(TAG, "Sending chat over radio: " + ax25.length + " bytes");
             btManager.sendKissFrame(ax25);
+
+            // Register for retry watchdog — cancelled when DELIVERED ACK arrives.
+            PendingOutboundChat pending =
+                    new PendingOutboundChat(wireMid, sender, room, message, geoChatLineUidOrNull);
+            pendingOutboundChats.put(wireMid, pending);
+            Log.d(TAG, "Outbound pending registered mid=" + wireMid + " room=" + room);
+            scheduleRetryCheck(wireMid);
         } catch (Exception e) {
             Log.e(TAG, "Error sending chat over radio", e);
+        }
+    }
+
+    /**
+     * Notify peer over RF that their chat frame was received (GeoChat delivered).
+     */
+    public void sendRadioChatAck(int wireMessageId, byte ackKind) {
+        if (!relayOutgoing || btManager == null || !btManager.isConnected()) {
+            return;
+        }
+        try {
+            BtechRelayPacket packet =
+                    BtechRelayPacket.createChatAckPacket(wireMessageId, ackKind);
+            byte[] packetBytes = packet.encode();
+            if (encryptionManager != null && encryptionManager.isEnabled()) {
+                packetBytes = encryptionManager.encrypt(packetBytes);
+                if (packetBytes == null) {
+                    Log.w(TAG, "Chat ACK encrypt failed mid=" + wireMessageId);
+                    return;
+                }
+            }
+            Ax25Frame frame = Ax25Frame.createBtechRelayFrame(
+                    localCallsign, 0, packetBytes);
+            btManager.sendKissFrame(frame.encode());
+            Log.d(TAG, "Sent radio chat ACK kind=" + ackKind + " mid=" + wireMessageId);
+        } catch (Exception e) {
+            Log.e(TAG, "sendRadioChatAck failed", e);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Outbound retry helpers
+    // -------------------------------------------------------------------------
+
+    private void scheduleRetryCheck(int wireMid) {
+        if (retryExecutor.isShutdown()) {
+            Log.w(TAG, "Retry executor shut down — cannot schedule retry for mid=" + wireMid);
+            return;
+        }
+        long intervalMs = SettingsFragment.getRetryIntervalMs(pluginContext);
+        Log.d(TAG, "Retry watchdog scheduled mid=" + wireMid + " in " + (intervalMs / 1000) + "s");
+        retryExecutor.schedule(() -> onRetryTimer(wireMid), intervalMs, TimeUnit.MILLISECONDS);
+    }
+
+    private void onRetryTimer(int wireMid) {
+        try {
+            if (disposed) return;
+            PendingOutboundChat pending = pendingOutboundChats.get(wireMid);
+            if (pending == null) {
+                Log.d(TAG, "Retry timer fired mid=" + wireMid + " — already ACK'd, nothing to do");
+                return;
+            }
+            int maxRetries = SettingsFragment.getMaxChatRetries(pluginContext);
+            if (pending.retryCount < maxRetries) {
+                pending.retryCount++;
+                Log.d(TAG, "No DELIVERED ACK for mid=" + wireMid
+                        + " — retransmitting (attempt " + pending.retryCount + "/" + maxRetries + ")");
+                retransmitChat(wireMid, pending);
+                scheduleRetryCheck(wireMid);
+            } else {
+                Log.w(TAG, "Retry limit reached mid=" + wireMid + " after " + pending.retryCount
+                        + " attempts — declaring failure");
+                pendingOutboundChats.remove(wireMid);
+                outboundWireMidToLocalLineUid.remove(wireMid);
+                notifyDeliveryFailed(wireMid, pending);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Unexpected error in retry timer for mid=" + wireMid, e);
+        }
+    }
+
+    private void retransmitChat(int wireMid, PendingOutboundChat pending) {
+        if (btManager == null || !btManager.isConnected()) {
+            Log.w(TAG, "Retry skipped — not connected mid=" + wireMid);
+            return;
+        }
+        try {
+            BtechRelayPacket packet = BtechRelayPacket.createChatPacket(
+                    CallsignUtil.toRadioCallsign(pending.sender),
+                    pending.room, wireMid, pending.message);
+            byte[] packetBytes = packet.encode();
+            if (encryptionManager != null && encryptionManager.isEnabled()) {
+                packetBytes = encryptionManager.encrypt(packetBytes);
+                if (packetBytes == null) {
+                    Log.e(TAG, "Retry encrypt failed mid=" + wireMid);
+                    return;
+                }
+            }
+            Ax25Frame frame = Ax25Frame.createBtechRelayFrame(localCallsign, 0, packetBytes);
+            btManager.sendKissFrame(frame.encode());
+        } catch (Exception e) {
+            Log.e(TAG, "Retry transmit failed mid=" + wireMid, e);
+        }
+    }
+
+    private void notifyDeliveryFailed(int wireMid, PendingOutboundChat pending) {
+        Log.w(TAG, "Delivery failed after " + pending.retryCount + " retries mid=" + wireMid
+                + " room=" + pending.room);
+        String peer = pending.room;
+        if (peer.startsWith("ANDROID-")) {
+            peer = peer.substring("ANDROID-".length());
+        }
+        final String peerKey = peer.trim().toUpperCase();
+        // Stash so we can auto-resend when the peer comes back online.
+        failedOutboundChatsByPeer
+                .computeIfAbsent(peerKey, k -> new java.util.concurrent.ConcurrentLinkedQueue<>())
+                .add(pending);
+
+        final String peerDisplay = peer;
+        final int retriesMade = pending.retryCount;
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+            try {
+                // AlertDialog — stays on screen until user taps OK.
+                android.app.AlertDialog.Builder builder =
+                        new android.app.AlertDialog.Builder(
+                                com.atakmap.android.maps.MapView.getMapView().getContext());
+                builder.setTitle("Message Not Delivered");
+                builder.setMessage("Message to " + peerDisplay
+                        + " will be delivered when user is rediscovered.");
+                builder.setIcon(android.R.drawable.ic_dialog_alert);
+                builder.setPositiveButton("OK", null);
+                builder.setCancelable(false);
+                builder.show();
+            } catch (Exception e) {
+                Log.e(TAG, "AlertDialog for delivery failure failed", e);
+                // Fallback toast if dialog can't be shown.
+                try {
+                    android.widget.Toast.makeText(pluginContext,
+                            "Message to " + peerDisplay + " will be delivered when user is rediscovered.",
+                            android.widget.Toast.LENGTH_LONG).show();
+                } catch (Exception ignored) {}
+            }
+            try {
+                // Persistent system notification in the shade as a record.
+                int notifyId = ("btechrelay_fail_" + wireMid).hashCode() & 0x7FFFFFFF;
+                NotificationUtil.getInstance().postNotification(
+                        notifyId,
+                        NotificationUtil.RED,
+                        "Message Not Delivered",
+                        "BTECH Relay",
+                        "Message to " + peerDisplay + " will be delivered when user is rediscovered.");
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to post delivery failure notification", e);
+            }
+        });
+    }
+
+    /**
+     * Apply RF GeoChat ACK on this device (updates sent-line ticks via ATAK receipts).
+     */
+    public void handleIncomingRadioChatAck(int wireMessageId, byte kind) {
+        String lineUid = outboundWireMidToLocalLineUid.get(wireMessageId);
+        if (lineUid == null) {
+            Log.d(TAG, "RF chat ACK mid=" + wireMessageId + " kind=" + kind
+                    + " — no outbound mapping");
+            return;
+        }
+        if (cotBridge == null) {
+            return;
+        }
+        if (kind == BtechRelayPacket.ACK_KIND_DELIVERED) {
+            // Cancel retry watchdog — message reached the recipient.
+            PendingOutboundChat removed = pendingOutboundChats.remove(wireMessageId);
+            if (removed != null) {
+                Log.d(TAG, "DELIVERED ACK cancelled retry watchdog mid=" + wireMessageId);
+            }
+            cotBridge.injectGeoChatReceipt(lineUid, false);
+        } else if (kind == BtechRelayPacket.ACK_KIND_READ) {
+            cotBridge.injectGeoChatReceipt(lineUid, true);
+        }
+    }
+
+    private static String resolveOutboundGeoChatLineUid(CotEvent event) {
+        if (event == null) {
+            return null;
+        }
+        String u = event.getUID();
+        if (u != null && u.startsWith("GeoChat.")) {
+            return u.trim();
+        }
+        try {
+            CotDetail d = event.getDetail();
+            if (d == null) {
+                return null;
+            }
+            CotDetail chat = d.getFirstChildByName(0, "__chat");
+            if (chat == null) {
+                chat = d.getFirstChildByName(0, "chat");
+            }
+            if (chat != null) {
+                String mid = chat.getAttribute("messageId");
+                if (mid != null && mid.startsWith("GeoChat.")) {
+                    return mid.trim();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private static String extractGeoChatLineUidFromBundle(android.os.Bundle b) {
+        if (b == null) {
+            return null;
+        }
+        String[] keys = {"messageId", "MessageId", "chatMessageUid", "lineUid", "chatLineUid",
+                "cotUid", "cotUID", "geoChatUid", "GeoChatUid", "cotEventUid", "eventUid", "uid"};
+        for (String k : keys) {
+            String v = b.getString(k);
+            if (v != null && v.startsWith("GeoChat.")) {
+                return v.trim();
+            }
+        }
+        String xml = b.getString("xml");
+        if (xml == null) {
+            xml = b.getString("cotXml");
+        }
+        if (xml == null) {
+            xml = b.getString("cot");
+        }
+        if (xml != null && !xml.isEmpty()) {
+            try {
+                CotEvent e = CotEvent.parse(xml);
+                return resolveOutboundGeoChatLineUid(e);
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
+    }
+
+    private static String extractGeoChatLineUidFromIntent(Intent intent) {
+        if (intent == null) {
+            return null;
+        }
+        String[] extraKeys = {"messageId", "MessageId", "chatMessageUid", "lineUid", "chatLineUid",
+                "cotUid", "cotUID", "geoChatUid", "cotEventUid", "eventUid", "uid"};
+        for (String k : extraKeys) {
+            String v = intent.getStringExtra(k);
+            if (v != null && v.startsWith("GeoChat.")) {
+                return v.trim();
+            }
+        }
+        String xml = intent.getStringExtra("xml");
+        if (xml != null && !xml.isEmpty()) {
+            try {
+                CotEvent e = CotEvent.parse(xml);
+                String u = resolveOutboundGeoChatLineUid(e);
+                if (u != null) {
+                    return u;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return extractGeoChatLineUidFromBundle(getMessageBundleExtra(intent));
+    }
+
+    /** @return true if this relay should be skipped (already sent for the same line recently). */
+    private boolean skipIfDuplicateOutboundGeoChatLine(String lineUid) {
+        if (lineUid == null || !lineUid.startsWith("GeoChat.")) {
+            return false;
+        }
+        long now = System.currentTimeMillis();
+        synchronized (outboundGeoChatDedupeLock) {
+            if (lineUid.equals(lastOutboundGeoChatDedupeUid)
+                    && (now - lastOutboundGeoChatDedupeMs) < 3000L) {
+                Log.d(TAG, "Skip duplicate outbound GeoChat relay " + lineUid);
+                return true;
+            }
+            lastOutboundGeoChatDedupeUid = lineUid;
+            lastOutboundGeoChatDedupeMs = now;
+            return false;
+        }
+    }
+
+    private void maybeLogPluginGeoChatBundleKeysMissingUid(android.os.Bundle b) {
+        if (b == null || loggedPluginChatBundleKeysMissingUid) {
+            return;
+        }
+        loggedPluginChatBundleKeysMissingUid = true;
+        try {
+            StringBuilder keys = new StringBuilder();
+            for (String k : b.keySet()) {
+                if (keys.length() > 0) {
+                    keys.append(",");
+                }
+                keys.append(k);
+            }
+            Log.d(TAG, "PLUGIN MESSAGE bundle (no GeoChat.* uid) keys: " + keys);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void trimOutboundAckMap() {
+        while (outboundWireMidToLocalLineUid.size() > MAX_OUTBOUND_ACK_ENTRIES) {
+            Iterator<Integer> it = outboundWireMidToLocalLineUid.keySet().iterator();
+            if (!it.hasNext()) {
+                break;
+            }
+            outboundWireMidToLocalLineUid.remove(it.next());
+        }
+    }
+
+    /**
+     * Recover wire chat {@code messageId} embedded in {@link CotBridge} inbound GeoChat UIDs.
+     */
+    static Integer recoverWireMidFromGeoChatUid(String geoChatUid) {
+        if (geoChatUid == null || !geoChatUid.startsWith("GeoChat.")) {
+            return null;
+        }
+        int lastDot = geoChatUid.lastIndexOf('.');
+        if (lastDot < 0 || lastDot >= geoChatUid.length() - 1) {
+            return null;
+        }
+        try {
+            long uniq = Long.parseLong(geoChatUid.substring(lastDot + 1));
+            long wireUnsig = (uniq >>> 32) & 0xffffffffL;
+            if (wireUnsig == 0L) {
+                return null;
+            }
+            return (int) wireUnsig;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static Integer extractWireMidFromMarkReadBundle(android.os.Bundle b) {
+        if (b == null) {
+            return null;
+        }
+        String[] keys = {"messageId", "chatMessageUid", "cotUid", "chatUid", "uid"};
+        for (String k : keys) {
+            Integer mid = recoverWireMidFromGeoChatUid(b.getString(k));
+            if (mid != null) {
+                return mid;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Called whenever a beacon (GPS position) or ping is received from a radio peer.
+     *
+     * Two effects:
+     *  1. Any pending (unacknowledged, in-retry) messages for that peer are sent immediately
+     *     and their retry counter is reset, giving the message a fresh set of attempts now
+     *     that the peer is known to be reachable.
+     *  2. Any messages that previously exhausted all retries (and showed the "will be delivered
+     *     when user is rediscovered" dialog) are re-queued and sent now.
+     *
+     * @param callsign  Bare radio callsign (no "ANDROID-" prefix), as received from the wire.
+     */
+    public void onPeerActivity(String callsign) {
+        if (callsign == null || callsign.isEmpty()) return;
+        final String key = callsign.trim().toUpperCase();
+
+        // 1. Pending in-retry messages → send immediately and reset retry counter.
+        for (Map.Entry<Integer, PendingOutboundChat> entry : pendingOutboundChats.entrySet()) {
+            PendingOutboundChat pending = entry.getValue();
+            String roomKey = pending.room;
+            if (roomKey.startsWith("ANDROID-")) roomKey = roomKey.substring("ANDROID-".length());
+            if (!key.equals(roomKey.trim().toUpperCase())) continue;
+
+            Log.d(TAG, "Peer activity for " + key
+                    + " — sending pending mid=" + entry.getKey() + " immediately");
+            pending.retryCount = 0;
+            retransmitChat(entry.getKey(), pending);
+            // Leave in pendingOutboundChats — ACK will remove it; watchdog retries if needed.
+        }
+
+        // 2. Previously-failed messages → resend as fresh transmissions.
+        java.util.Queue<PendingOutboundChat> failed = failedOutboundChatsByPeer.remove(key);
+        if (failed != null && !failed.isEmpty()) {
+            Log.d(TAG, "Peer " + key + " rediscovered — resending " + failed.size() + " failed message(s)");
+            for (PendingOutboundChat f : failed) {
+                sendChatOverRadio(f.sender, f.room, f.message, f.geoChatLineUid);
+            }
         }
     }
 
@@ -802,6 +1392,11 @@ public class ChatBridge {
      */
     public void dispose() {
         disposed = true;
+        retryExecutor.shutdownNow();
+        pendingOutboundChats.clear();
+        failedOutboundChatsByPeer.clear();
+        outboundWireMidToLocalLineUid.clear();
+        pendingReadAcksByConversation.clear();
         pendingUnreadConversationUids.clear();
         unreadVisibilityPollRunning = false;
         if (chatReceiver != null) {

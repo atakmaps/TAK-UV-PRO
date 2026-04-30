@@ -13,6 +13,7 @@ import com.atakmap.coremap.cot.event.CotEvent;
 
 import com.btechrelay.plugin.ax25.Ax25Frame;
 import com.btechrelay.plugin.bluetooth.BtConnectionManager;
+import com.btechrelay.plugin.chat.ChatBridge;
 import com.btechrelay.plugin.crypto.EncryptionManager;
 import com.btechrelay.plugin.protocol.BtechRelayPacket;
 import com.btechrelay.plugin.protocol.PacketFragmenter;
@@ -46,16 +47,11 @@ public class CotBridge {
     private volatile String cachedLocalDeviceUidForGeoChat;
     private BtConnectionManager btManager;
     private String localCallsign = "OPENRL";
-    private String teamColor = "Cyan";
     private EncryptionManager encryptionManager;
     private CommsMapComponent.PreSendProcessor preSendProcessor;
 
     /** Catches outbound GeoChat: ATAK sends via CotMapComponent external dispatcher, not PreSend. */
     private CommsLogger outboundCommsLogger;
-
-    /** Dedupe if both PreSend and CommsLogger see the same GeoChat send */
-    private volatile String lastGeoChatRelayDedupeKey;
-    private volatile long lastGeoChatRelayDedupeMs;
 
     /** Whether to relay all outgoing SA to radio (can flood the channel) */
     private boolean relayOutgoingSa = false;
@@ -83,6 +79,9 @@ public class CotBridge {
      */
     private static final long INBOUND_INJECT_NO_RELAY_MS = 10_000L;
     private final Map<String, Long> inboundInjectNoRelayUntil = new ConcurrentHashMap<>();
+
+    /** Set after {@link ChatBridge} construction; used to send compact TYPE_CHAT with wire ACK ids. */
+    private volatile ChatBridge chatBridge;
 
     private void markInboundInjectSkipOutboundRelay(String cotUid) {
         if (cotUid == null || cotUid.isEmpty()) return;
@@ -130,12 +129,12 @@ public class CotBridge {
         this.relayOutgoingSa = relay;
     }
 
-    public void setTeamColor(String color) {
-        this.teamColor = color;
-    }
-
     public void setEncryptionManager(EncryptionManager em) {
         this.encryptionManager = em;
+    }
+
+    public void setChatBridge(ChatBridge chatBridge) {
+        this.chatBridge = chatBridge;
     }
 
     /**
@@ -331,21 +330,74 @@ public class CotBridge {
 
     /**
      * Inject a position CoT event into ATAK from radio GPS data.
+     *
+     * @param senderTeamFromPeer ATAK {@code locationTeam} from the transmitting node
+     *                           (embedded in GPS packet). If null or empty (legacy/APRS path),
+     *                           falls back to {@code "Cyan"} so we do not apply the
+     *                           <em>receiver's</em> team tint to peers.
      */
     public void injectPositionCot(String callsign, double lat, double lon,
-                                  double alt, double speed, double course) {
+                                  double alt, double speed, double course,
+                                  String senderTeamFromPeer) {
         try {
+            String teamForCot = senderTeamFromPeer != null && !senderTeamFromPeer.trim().isEmpty()
+                    ? senderTeamFromPeer.trim()
+                    : "Cyan";
+
             CotEvent event = CotBuilder.buildPositionCot(
-                    callsign, lat, lon, alt, speed, course, teamColor);
+                    callsign, lat, lon, alt, speed, course, teamForCot);
 
             if (event != null && event.isValid()) {
-                Log.d(TAG, "Injecting position CoT for " + callsign);
+                Log.d(TAG, "Injecting position CoT for " + callsign + " team=" + teamForCot);
                 dispatchCotEvent(event);
             } else {
                 Log.w(TAG, "Invalid position CoT for " + callsign);
             }
         } catch (Exception e) {
             Log.e(TAG, "Error injecting position CoT", e);
+        }
+    }
+
+    /**
+     * Inject GeoChat delivered ({@code b-t-f-d}) or read ({@code b-t-f-r}) receipt for a sent line.
+     */
+    public void injectGeoChatReceipt(String referencedOriginalMessageLineUid,
+                                     boolean readNotDelivered) {
+        try {
+            CotEvent event = CotBuilder.buildGeoChatReceiptCot(
+                    referencedOriginalMessageLineUid,
+                    readNotDelivered,
+                    cachedLocalDeviceUidForGeoChat,
+                    localCallsign);
+            if (event == null || !event.isValid()) {
+                return;
+            }
+            markInboundInjectSkipOutboundRelay(event.getUID());
+            dispatchCotEvent(event);
+            broadcastReceiptCotPlaced(event);
+            Log.d(TAG, "Injected GeoChat receipt type=" + event.getType()
+                    + " cotUID=" + event.getUID()
+                    + " for line=" + referencedOriginalMessageLineUid);
+        } catch (Exception e) {
+            Log.e(TAG, "Error injecting GeoChat receipt", e);
+        }
+    }
+
+    /**
+     * Some ATAK GeoChat paths hook {@code COT_PLACED} rather than the internal dispatcher alone;
+     * receipts still skip RF relay via PreSend guards on {@code b-t-f-d}/{@code b-t-f-r}.
+     */
+    private void broadcastReceiptCotPlaced(CotEvent event) {
+        if (event == null) {
+            return;
+        }
+        try {
+            Intent intent = new Intent("com.atakmap.android.maps.COT_PLACED");
+            intent.putExtra("xml", event.toString());
+            AtakBroadcast.getInstance().sendBroadcast(intent);
+            Log.d(TAG, "Broadcast COT_PLACED for GeoChat receipt uid=" + event.getUID());
+        } catch (Exception e) {
+            Log.w(TAG, "COT_PLACED broadcast for GeoChat receipt failed", e);
         }
     }
 
@@ -488,6 +540,24 @@ public class CotBridge {
     }
 
     /**
+     * Team string from ATAK Settings (sender side) for outbound GPS TLV extension.
+     */
+    private String resolveLocalAtakTeamForOutbound() {
+        try {
+            String t = com.atakmap.android.chat.ChatManagerMapComponent.getTeamName();
+            if (t != null && !t.trim().isEmpty()) {
+                return t.trim();
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            return com.btechrelay.plugin.ui.SettingsFragment.getAtakTeamColor(pluginContext);
+        } catch (Exception ignored) {
+        }
+        return "Cyan";
+    }
+
+    /**
      * Send local GPS position over radio as compact GPS packet.
      */
     public void sendPositionOverRadio(double lat, double lon, double alt,
@@ -496,8 +566,10 @@ public class CotBridge {
 
         try {
             BtechRelayPacket packet = BtechRelayPacket.createGpsPacket(
-                    com.btechrelay.plugin.util.CallsignUtil.toRadioCallsign(localCallsign), localCallsign, lat, lon, (float) alt,
-                    speed, course, battery);
+                    com.btechrelay.plugin.util.CallsignUtil.toRadioCallsign(localCallsign),
+                    localCallsign, lat, lon, (float) alt,
+                    speed, course, battery,
+                    resolveLocalAtakTeamForOutbound());
 
             byte[] packetBytes = packet.encode();
 
@@ -608,6 +680,10 @@ public class CotBridge {
             if (event == null) return;
 
             String type = event.getType();
+            // GeoChat delivery/read receipts must never go back out over RF.
+            if ("b-t-f-r".equals(type) || "b-t-f-d".equals(type)) {
+                return;
+            }
             boolean btConnected = btManager != null && btManager.isConnected();
 
             // Log GeoChat BEFORE BT gate — previous bug: early return hid whether PreSend
@@ -656,6 +732,14 @@ public class CotBridge {
                 Log.d(TAG, "Relaying contact-targeted CoT to radio: type=" + type
                         + " uid=" + event.getUID()
                         + " toUIDs=" + java.util.Arrays.toString(toUIDs));
+                // GeoChat over RF as compact TYPE_CHAT so wire messageId ↔ local GeoChat line UID
+                // is registered for RF delivered/read ACKs. Full TYPE_COT relay never filled that map.
+                if ("b-t-f".equals(type)) {
+                    if (chatBridge != null) {
+                        new Thread(() -> chatBridge.relayOutboundGeoChatCotAsCompact(event)).start();
+                        return;
+                    }
+                }
                 new Thread(() -> sendCotOverRadio(event)).start();
                 return;
             }
@@ -706,19 +790,12 @@ public class CotBridge {
         if (!shouldRelayGeoChatToRadio(event)) return;
 
         String uid = event.getUID();
-        if (uid == null) return;
-        long now = System.currentTimeMillis();
-        synchronized (this) {
-            if (uid.equals(lastGeoChatRelayDedupeKey)
-                    && (now - lastGeoChatRelayDedupeMs) < 2000L) {
-                return;
-            }
-            lastGeoChatRelayDedupeKey = uid;
-            lastGeoChatRelayDedupeMs = now;
+        Log.d(TAG, "Outbound GeoChat (CommsLogger) → compact relay: uid=" + uid);
+        if (chatBridge != null) {
+            new Thread(() -> chatBridge.relayOutboundGeoChatCotAsCompact(event)).start();
+        } else {
+            new Thread(() -> sendCotOverRadio(event)).start();
         }
-
-        Log.d(TAG, "Outbound GeoChat (CommsLogger) → radio: uid=" + uid);
-        new Thread(() -> sendCotOverRadio(event)).start();
     }
 
     /**

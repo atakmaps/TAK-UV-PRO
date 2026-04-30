@@ -15,6 +15,24 @@
             android:entries="@array/beacon_interval_labels"
             android:entryValues="@array/beacon_interval_values" />
 
+        <com.atakmap.android.gui.PanListPreference
+            android:key="btechrelay_retry_interval_min"
+            android:title="Retry Interval"
+            android:summary="How long to wait before retransmitting an unacknowledged message"
+            android:defaultValue="2"
+            android:dialogTitle="Retry Interval"
+            android:entries="@array/retry_interval_labels"
+            android:entryValues="@array/retry_interval_values" />
+
+        <com.atakmap.android.gui.PanListPreference
+            android:key="btechrelay_retry_max"
+            android:title="Max Retries"
+            android:summary="Number of retransmit attempts before declaring delivery failure"
+            android:defaultValue="3"
+            android:dialogTitle="Max Retries"
+            android:entries="@array/retry_max_labels"
+            android:entryValues="@array/retry_max_values" />
+
     </PreferenceCategory>
 
     <PreferenceCategory

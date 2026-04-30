@@ -2,6 +2,12 @@ package com.btechrelay.plugin.protocol;
 
 import android.util.Log;
 
+import com.atakmap.android.contact.Contact;
+import com.atakmap.android.contact.Contacts;
+import com.atakmap.android.contact.IndividualContact;
+import com.atakmap.android.maps.MapItem;
+import com.atakmap.android.maps.MapView;
+
 import com.btechrelay.plugin.ax25.Ax25Frame;
 import com.btechrelay.plugin.ax25.AprsParser;
 import com.btechrelay.plugin.chat.ChatBridge;
@@ -128,54 +134,32 @@ public class PacketRouter {
                             gps.longitude, gps.altitude, gps.speed,
                             gps.course, gps.battery);
 
-                    try {
-                        com.atakmap.android.contact.Contacts contacts =
-                                com.atakmap.android.contact.Contacts.getInstance();
+                    final String normalized = gps.callsign.trim().toUpperCase();
+                    final String uid = "ANDROID-" + normalized;
 
-                        String normalized = gps.callsign.trim().toUpperCase();
-                        String uid = "ANDROID-" + normalized;
-
-                        com.atakmap.android.contact.IndividualContact c =
-                                new com.atakmap.android.contact.IndividualContact(
-                                        normalized,
-                                        uid
-                                );
-
-                        // Must match Intent action registered in ChatBridge: ATAK broadcasts
-                        // outbound GeoChat to each contact's connector connection string (not SEND_MESSAGE).
-                        c.addConnector(new com.atakmap.android.contact.PluginConnector(
-                                ChatBridge.ACTION_PLUGIN_CONTACT_GEOCHAT_SEND));
-                        c.addConnector(new com.atakmap.android.contact.IpConnector("BTECH_RELAY://" + uid));
-
-                        com.atakmap.android.preference.AtakPreferences prefs =
-                                new com.atakmap.android.preference.AtakPreferences(
-                                        com.atakmap.android.maps.MapView.getMapView().getContext());
-
-                        prefs.set("contact.connector.default." + c.getUID(),
-                                com.atakmap.android.contact.PluginConnector.CONNECTOR_TYPE);
-
-                        contacts.addContact(c);
-                        // Mark this UID as a radio-transport endpoint so we can
-                        // route ATAK "send to contact" actions over the radio link.
-                        cotBridge.registerBtechContactUid(uid);
-                        // Also register a callsign→UID mapping for chat routing, since GeoChat
-                        // destinations may appear as labels/rooms rather than explicit toUIDs.
-                        cotBridge.registerBtechContactId(normalized, uid);
-                        // Radio chat packets truncate callsign (6-char AX.25 form, vowel-stripped).
-                        // Incoming chat uses that form (e.g. JNR) while GPS/contact use full CS (JUNIOR).
-                        String radioTrunc = CallsignUtil.toRadioCallsign(normalized);
-                        if (radioTrunc != null && !radioTrunc.isEmpty()
-                                && !radioTrunc.equalsIgnoreCase(normalized)) {
-                            cotBridge.registerBtechContactId(radioTrunc, uid);
-                        }
-
-                    } catch (Exception e) {
-                        android.util.Log.e("BTRelay.CONTACT", "Contact add failed", e);
-                    }
-
+                    // Position CoT first so map marker + __group (sender team) exist before we
+                    // register/link the IndividualContact (contacts list color follows MapItem).
                     cotBridge.injectPositionCot(gps.callsign, gps.latitude,
                             gps.longitude, gps.altitude, gps.speed,
-                            gps.course);
+                            gps.course,
+                            gps.teamColor);
+
+                    cotBridge.registerBtechContactUid(uid);
+                    cotBridge.registerBtechContactId(normalized, uid);
+                    String radioTrunc = CallsignUtil.toRadioCallsign(normalized);
+                    if (radioTrunc != null && !radioTrunc.isEmpty()
+                            && !radioTrunc.equalsIgnoreCase(normalized)) {
+                        cotBridge.registerBtechContactId(radioTrunc, uid);
+                    }
+
+                    MapView mv = MapView.getMapView();
+                    if (mv != null) {
+                        mv.post(() -> linkRadioIndividualContactToMapMarker(
+                                normalized, uid, 0));
+                    }
+
+                    // Notify ChatBridge so any pending/failed messages for this peer are sent.
+                    chatBridge.onPeerActivity(gps.callsign);
                 }
                 break;
 
@@ -192,10 +176,21 @@ public class PacketRouter {
                         java.nio.charset.StandardCharsets.US_ASCII).trim();
                 Log.d(TAG, "Ping from: " + pingCall);
                 contactTracker.handlePing(pingCall);
+                // Use the AX.25 source callsign (full name) so it matches the contact UID key
+                // that was registered from GPS beacons. The payload callsign may be vowel-stripped.
+                chatBridge.onPeerActivity(callsign);
+                if (!callsign.equalsIgnoreCase(pingCall)) {
+                    chatBridge.onPeerActivity(pingCall); // also try stripped form for safety
+                }
                 break;
 
             case BtechRelayPacket.TYPE_ACK:
-                Log.d(TAG, "ACK received");
+                BtechRelayPacket.AckPayload ack =
+                        BtechRelayPacket.decodeAckPayload(packet.getPayload());
+                if (ack != null) {
+                    chatBridge.handleIncomingRadioChatAck(
+                            ack.wireMessageId, ack.kind);
+                }
                 break;
 
             case BtechRelayPacket.TYPE_COT_FRAGMENT:
@@ -228,7 +223,8 @@ public class PacketRouter {
             contactTracker.updateContact(callsign, pos.latitude,
                     pos.longitude, pos.altitude, pos.speed, pos.course, -1);
             cotBridge.injectPositionCot(callsign, pos.latitude,
-                    pos.longitude, pos.altitude, pos.speed, pos.course);
+                    pos.longitude, pos.altitude, pos.speed, pos.course,
+                    null);
             return;
         }
 
@@ -272,5 +268,67 @@ public class PacketRouter {
 
         Log.d(TAG, "Chat mid=" + messageId + " from " + sender + " [" + room + "]: " + message);
         chatBridge.injectRadioMessage(sender, room, message, messageId);
+        chatBridge.sendRadioChatAck(messageId, BtechRelayPacket.ACK_KIND_DELIVERED);
+    }
+
+    /**
+     * Associate {@link IndividualContact} with the CoT-driven map marker ({@link MapItem}) so
+     * Contacts UI uses the peer's team tint from SA (matches native Wi‑Fi / server contacts).
+     * Retries briefly if CoT processing has not yet created the marker.
+     */
+    private void linkRadioIndividualContactToMapMarker(final String normalized,
+                                                       final String uid,
+                                                       final int attempt) {
+        try {
+            MapView mv = MapView.getMapView();
+            if (mv == null) {
+                return;
+            }
+            MapItem item = mv.getRootGroup().deepFindUID(uid);
+
+            Contacts contacts = Contacts.getInstance();
+            Contact existing = contacts.getContactByUuid(uid);
+
+            if (existing instanceof IndividualContact) {
+                IndividualContact ic = (IndividualContact) existing;
+                if (item != null) {
+                    ic.setMapItem(item);
+                    ic.dispatchChangeEvent();
+                    return;
+                }
+                if (attempt < 12) {
+                    mv.postDelayed(() -> linkRadioIndividualContactToMapMarker(
+                            normalized, uid, attempt + 1), 50L);
+                    return;
+                }
+                ic.dispatchChangeEvent();
+                return;
+            }
+
+            if (item == null && attempt < 12) {
+                mv.postDelayed(() -> linkRadioIndividualContactToMapMarker(
+                        normalized, uid, attempt + 1), 50L);
+                return;
+            }
+
+            IndividualContact c = new IndividualContact(
+                    normalized,
+                    uid,
+                    item instanceof MapItem ? item : null);
+
+            c.addConnector(new com.atakmap.android.contact.PluginConnector(
+                    ChatBridge.ACTION_PLUGIN_CONTACT_GEOCHAT_SEND));
+            c.addConnector(new com.atakmap.android.contact.IpConnector(
+                    "BTECH_RELAY://" + uid));
+
+            com.atakmap.android.preference.AtakPreferences prefs =
+                    new com.atakmap.android.preference.AtakPreferences(mv.getContext());
+            prefs.set("contact.connector.default." + c.getUID(),
+                    com.atakmap.android.contact.PluginConnector.CONNECTOR_TYPE);
+
+            contacts.addContact(c);
+        } catch (Exception e) {
+            Log.e(TAG, "linkRadioIndividualContactToMapMarker failed uid=" + uid, e);
+        }
     }
 }

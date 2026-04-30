@@ -34,6 +34,11 @@ public class BtechRelayPacket {
     public static final byte TYPE_ACK = 0x05;
     public static final byte TYPE_COT_FRAGMENT = 0x06;
 
+    /** GeoChat delivered receipt (CoT type {@code b-t-f-d}). */
+    public static final byte ACK_KIND_DELIVERED = 1;
+    /** GeoChat read receipt */
+    public static final byte ACK_KIND_READ = 2;
+
     private byte type;
     private byte[] payload;
 
@@ -77,6 +82,11 @@ public class BtechRelayPacket {
     // --- Compact GPS Position encoding/decoding ---
 
     /**
+     * Maximum UTF-8 length for embedded sender ATAK {@code locationTeam}; keeps frames small.
+     */
+    private static final int GPS_TEAM_EXT_MAX_CHARS = 48;
+
+    /**
      * Create a compact GPS position packet (22 bytes).
      *
      * Format:
@@ -88,11 +98,13 @@ public class BtechRelayPacket {
      *   Course (2 bytes, uint16, degrees * 100)
      *   Flags (1 byte)
      *   Battery (1 byte, percentage)
+     * Optional trailing UTF-8 (legacy + v2): {@code '|' + full_callsign + [ '\0' + sender_team ]}
      */
     public static BtechRelayPacket createGpsPacket(String callsign, String fullCallsign,
                                                    double lat, double lon,
                                                    double alt, double speed,
-                                                   double course, int battery) {
+                                                   double course, int battery,
+                                                   String senderAtakTeam) {
         ByteBuffer buf = ByteBuffer.allocate(22);
         buf.order(ByteOrder.BIG_ENDIAN);
 
@@ -124,15 +136,33 @@ public class BtechRelayPacket {
 
         byte[] base = buf.array();
 
-// Append full callsign (UTF-8)
-byte[] full = fullCallsign.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-byte[] out = new byte[base.length + 1 + full.length];
+        byte[] full = fullCallsign != null ? fullCallsign.getBytes(
+                java.nio.charset.StandardCharsets.UTF_8) : new byte[0];
+        byte[] teamExt = null;
+        if (senderAtakTeam != null) {
+            String t = senderAtakTeam.trim();
+            if (!t.isEmpty()) {
+                if (t.length() > GPS_TEAM_EXT_MAX_CHARS) {
+                    t = t.substring(0, GPS_TEAM_EXT_MAX_CHARS);
+                }
+                teamExt = t.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            }
+        }
 
-System.arraycopy(base, 0, out, 0, base.length);
-out[base.length] = (byte)'|';
-System.arraycopy(full, 0, out, base.length + 1, full.length);
-
-return new BtechRelayPacket(TYPE_GPS, out);
+        int extLen = 1 + full.length + (teamExt != null ? 1 + teamExt.length : 0);
+        byte[] out = new byte[base.length + extLen];
+        System.arraycopy(base, 0, out, 0, base.length);
+        int off = base.length;
+        out[off++] = (byte) '|';
+        if (full.length > 0) {
+            System.arraycopy(full, 0, out, off, full.length);
+            off += full.length;
+        }
+        if (teamExt != null) {
+            out[off++] = (byte) '\0';
+            System.arraycopy(teamExt, 0, out, off, teamExt.length);
+        }
+        return new BtechRelayPacket(TYPE_GPS, out);
     }
 
     /**
@@ -159,19 +189,40 @@ return new BtechRelayPacket(TYPE_GPS, out);
         gps.flags = buf.get();
         gps.battery = buf.get() & 0xFF;
 
-// Check for extended payload (full callsign)
-if (payload.length > 22) {
-    try {
-        String extra = new String(payload, 22, payload.length - 22,
-            java.nio.charset.StandardCharsets.UTF_8);
-
-        if (extra.startsWith("|")) {
-            gps.callsign = extra.substring(1).trim();
+        // Optional: '|' + full callsign UTF-8 + optional '\0' + sender ATAK team (matches native SA)
+        if (payload.length > 22) {
+            try {
+                String extra = new String(payload, 22, payload.length - 22,
+                        java.nio.charset.StandardCharsets.UTF_8);
+                if (extra.startsWith("|")) {
+                    String rest = extra.substring(1);
+                    int nul = rest.indexOf('\0');
+                    if (nul >= 0) {
+                        gps.callsign = rest.substring(0, nul).trim();
+                        gps.teamColor = rest.substring(nul + 1).trim();
+                        if (gps.teamColor.isEmpty()) {
+                            gps.teamColor = null;
+                        }
+                    } else {
+                        gps.callsign = rest.trim();
+                    }
+                }
+            } catch (Exception ignored) {
+            }
         }
-    } catch (Exception ignored) {}
-}
 
         return gps;
+    }
+
+    /**
+     * Allocate the next wire chat {@code messageId} (same sequence as {@link #createChatPacket}).
+     */
+    public static int allocateChatWireMessageId() {
+        int mid = CHAT_MESSAGE_ID.getAndIncrement();
+        if (mid == 0) {
+            mid = CHAT_MESSAGE_ID.getAndIncrement();
+        }
+        return mid;
     }
 
     /**
@@ -180,11 +231,7 @@ if (payload.length > 22) {
     public static BtechRelayPacket createChatPacket(String sender,
                                                     String chatroom,
                                                     String message) {
-        int mid = CHAT_MESSAGE_ID.getAndIncrement();
-        if (mid == 0) {
-            mid = CHAT_MESSAGE_ID.getAndIncrement();
-        }
-        return createChatPacket(sender, chatroom, mid, message);
+        return createChatPacket(sender, chatroom, allocateChatWireMessageId(), message);
     }
 
     /**
@@ -211,6 +258,33 @@ if (payload.length > 22) {
     }
 
     /**
+     * GeoChat delivered/read acknowledgment ({@link #TYPE_ACK}).
+     * Payload: BE int wire {@code messageId} + {@link #ACK_KIND_DELIVERED} or {@link #ACK_KIND_READ}.
+     */
+    public static BtechRelayPacket createChatAckPacket(int wireMessageId, byte ackKind) {
+        ByteBuffer buf = ByteBuffer.allocate(5);
+        buf.order(ByteOrder.BIG_ENDIAN);
+        buf.putInt(wireMessageId);
+        buf.put(ackKind);
+        return new BtechRelayPacket(TYPE_ACK, buf.array());
+    }
+
+    public static AckPayload decodeAckPayload(byte[] payload) {
+        if (payload == null || payload.length < 5) {
+            return null;
+        }
+        ByteBuffer buf = ByteBuffer.wrap(payload);
+        buf.order(ByteOrder.BIG_ENDIAN);
+        AckPayload a = new AckPayload();
+        a.wireMessageId = buf.getInt();
+        a.kind = buf.get();
+        if (a.kind != ACK_KIND_DELIVERED && a.kind != ACK_KIND_READ) {
+            return null;
+        }
+        return a;
+    }
+
+    /**
      * Create a ping/discovery packet.
      */
     public static BtechRelayPacket createPingPacket(String callsign) {
@@ -229,6 +303,8 @@ if (payload.length > 22) {
      */
     public static class GpsData {
         public String callsign;
+        /** Sender's ATAK {@code locationTeam} when carried on-wire; null if legacy packet */
+        public String teamColor;
         public double latitude;
         public double longitude;
         public double altitude;
@@ -236,5 +312,10 @@ if (payload.length > 22) {
         public double course;
         public byte flags;
         public int battery;
+    }
+
+    public static class AckPayload {
+        public int wireMessageId;
+        public byte kind;
     }
 }

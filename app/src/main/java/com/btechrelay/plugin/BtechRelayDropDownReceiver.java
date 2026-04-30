@@ -294,6 +294,9 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
             updateConnectionUI(true, displayName);
             appendLog("Connected to " + displayName);
         });
+        // Restart the beacon timer so the first beacon fires 30s from now (connection time).
+        AtakBroadcast.getInstance().sendBroadcast(
+                new Intent(BtechRelayMapComponent.ACTION_BEACON_INTERVAL_CHANGED));
     }
 
     @Override
@@ -517,7 +520,6 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
         layout.setOrientation(android.widget.LinearLayout.VERTICAL);
         layout.setPadding(48, 32, 48, 16);
 
-
         // Beacon interval field
         TextView labelBeacon = new TextView(ctx);
         labelBeacon.setText("\nGPS Beacon Interval (seconds)");
@@ -528,6 +530,28 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
                 SettingsFragment.DEFAULT_BEACON_INTERVAL));
         editBeacon.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
         layout.addView(editBeacon);
+
+        // Retry interval field
+        TextView labelRetryInterval = new TextView(ctx);
+        labelRetryInterval.setText("\nRetry Interval (minutes) — wait before retransmitting");
+        labelRetryInterval.setTextColor(0xFFAAAAAA);
+        layout.addView(labelRetryInterval);
+        EditText editRetryInterval = new EditText(ctx);
+        editRetryInterval.setText(prefs.getString(SettingsFragment.PREF_RETRY_INTERVAL_MIN,
+                SettingsFragment.DEFAULT_RETRY_INTERVAL_MIN));
+        editRetryInterval.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        layout.addView(editRetryInterval);
+
+        // Max retries field
+        TextView labelRetryMax = new TextView(ctx);
+        labelRetryMax.setText("\nMax Retries — attempts before declaring failure");
+        labelRetryMax.setTextColor(0xFFAAAAAA);
+        layout.addView(labelRetryMax);
+        EditText editRetryMax = new EditText(ctx);
+        editRetryMax.setText(prefs.getString(SettingsFragment.PREF_RETRY_MAX,
+                SettingsFragment.DEFAULT_RETRY_MAX));
+        editRetryMax.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        layout.addView(editRetryMax);
 
         // Team color is controlled by ATAK core settings (locationTeam). Plugin no longer overrides it.
 
@@ -544,6 +568,16 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
                         editor.putString(SettingsFragment.PREF_BEACON_INTERVAL, newBeacon);
                         if (beaconIntervalText != null)
                             beaconIntervalText.setText(newBeacon + "s");
+                    }
+
+                    String newRetryInterval = editRetryInterval.getText().toString().trim();
+                    if (!newRetryInterval.isEmpty()) {
+                        editor.putString(SettingsFragment.PREF_RETRY_INTERVAL_MIN, newRetryInterval);
+                    }
+
+                    String newRetryMax = editRetryMax.getText().toString().trim();
+                    if (!newRetryMax.isEmpty()) {
+                        editor.putString(SettingsFragment.PREF_RETRY_MAX, newRetryMax);
                     }
 
                     editor.apply();
