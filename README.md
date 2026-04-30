@@ -7,10 +7,10 @@ A free, open-source ATAK plugin that connects BTECH radios to the Android Team A
 | Feature | Status | Description |
 |---------|--------|-------------|
 | **Position Sharing (PLI)** | ✅ Working | Your ATAK position is beaconed over radio at a configurable interval. Incoming positions appear as contacts on the map. |
-| **GeoChat Relay** | ✅ Working | ATAK GeoChat messages are relayed over radio and delivered to other ATAK users in range. Toggleable per-direction. |
-| **CoT Marker Sync** | ✅ Working | CoT events (markers, routes, sensor data) are relayed between ATAK and the radio network. Large CoT is fragmented/reassembled automatically. |
+| **GeoChat over RF (contact-centric)** | ✅ Working | Chat to radio peers using ATAK’s native Contacts/GeoChat UI (plugin contacts route via RF transport). |
+| **Targeted CoT/marker send over RF** | ✅ Working | Send markers/CoT to a specific radio contact from ATAK; large CoT is fragmented/reassembled automatically. |
 | **AES-256 Encryption** | ✅ Working | Optional passphrase-based AES-256-CBC encryption for all radio traffic. All nodes must share the same passphrase. |
-| **Contact Tracking** | ✅ Working | Radios in range are tracked as contacts with callsign, team color, last-seen time, and position. Contacts that go silent are aged out. |
+| **Contact Tracking** | ✅ Working | Radios in range are tracked as contacts with callsign, last-seen time, and position. Contacts that go silent are aged out. |
 | **Bluetooth Auto-Reconnect** | ✅ Working | Three-strategy SPP connection with exponential backoff reconnect (up to 5 attempts). |
 | **Send Ping** | ✅ Working | Lightweight keepalive — lets other nodes know you're active even without GPS. |
 | **Voice PTT** | 🔧 Scaffold | Push-to-talk via Bluetooth HFP audio routing. Core code is in place; needs real-radio testing. |
@@ -148,12 +148,19 @@ Then open ATAK → Menu → Tools → **BTECH Relay**.
 
 | Control | What It Does |
 |---------|-------------|
-| **PLI/SA Switch** | Toggle automatic position beaconing over radio |
-| **GeoChat Switch** | Toggle chat message relay over radio |
 | **AES-256 Switch** | Enable encryption (set a passphrase first) |
 | **Send Beacon** | Immediately broadcast your current position |
 | **Send Ping** | Send a lightweight keepalive with your callsign |
-| **Settings** | Configure callsign, beacon interval, and team color |
+| **Settings** | Configure beacon interval and other plugin options (team color is controlled by ATAK core settings) |
+
+### Contact-centric routing (important)
+
+Radio peers are represented as **native ATAK Contacts** (UIDs look like `ANDROID-<CALLSIGN>`). Use the ATAK Contacts UI to:
+
+- open GeoChat with a radio contact (messages route over RF via the plugin)
+- send CoT/markers to a radio contact (only targeted sends route over RF; the plugin does not blindly broadcast everything)
+
+For deeper implementation details and a full “new agent” handoff (logic trees, key files, known ATAK gotchas), see `HANDOFF.md`.
 
 ### Encryption
 
