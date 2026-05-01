@@ -15,6 +15,7 @@ import com.atakmap.comms.CommsLogger;
 import com.atakmap.comms.CommsMapComponent;
 import com.atakmap.coremap.cot.event.CotEvent;
 
+import com.uvpro.plugin.BuildConfig;
 import com.uvpro.plugin.ax25.Ax25Frame;
 import com.uvpro.plugin.bluetooth.BtConnectionManager;
 import com.uvpro.plugin.chat.ChatBridge;
@@ -79,7 +80,10 @@ public class CotBridge {
     /** Per-UID throttle map for SA Relay to prevent channel flooding */
     private final Map<String, Long> saRelayLastSentByUid = new ConcurrentHashMap<>();
 
-    /** CoT types broadcast by SA Relay */
+    /**
+     * Inbound network CoT types eligible for SA Relay (network → radio).
+     * Matches friendly SA ({@code a-*-G…}), points/markers ({@code b-m-p…}), routes ({@code b-m-r…}).
+     */
     private static final java.util.regex.Pattern SA_RELAY_TYPE_PATTERN =
             java.util.regex.Pattern.compile(
                     "^(a-[a-z]-G|b-m-p|b-m-r)");
@@ -640,31 +644,31 @@ public class CotBridge {
             CotMapComponent.getInternalDispatcher().dispatch(event);
             Log.d(TAG, "Dispatched CoT event: " + event.getUID());
 
-            try {
-                com.atakmap.android.maps.MapItem item =
-                        com.atakmap.android.maps.MapView.getMapView()
-                                .getRootGroup()
-                                .deepFindUID(event.getUID());
+            if (BuildConfig.DEBUG) {
+                try {
+                    com.atakmap.android.maps.MapItem item =
+                            com.atakmap.android.maps.MapView.getMapView()
+                                    .getRootGroup()
+                                    .deepFindUID(event.getUID());
 
-                if (item != null) {
-                    Log.d(TAG, "MARKER_DEBUG uid=" + item.getUID()
-                            + " title=" + item.getTitle()
-                            + " type=" + item.getType()
-                            + " callsign=" + item.getMetaString("callsign", "NULL")
-                            + " team=" + item.getMetaString("team", "NULL")
-                            + " labels_on=" + item.hasMetaValue("labels_on")
-                            + " hideLabel=" + item.hasMetaValue("hideLabel"));
+                    if (item != null) {
+                        Log.d(TAG, "MARKER_DEBUG uid=" + item.getUID()
+                                + " title=" + item.getTitle()
+                                + " type=" + item.getType()
+                                + " callsign=" + item.getMetaString("callsign", "NULL")
+                                + " team=" + item.getMetaString("team", "NULL")
+                                + " labels_on=" + item.hasMetaValue("labels_on")
+                                + " hideLabel=" + item.hasMetaValue("hideLabel"));
 
-                    if (item instanceof com.atakmap.android.maps.Marker) {
-                        com.atakmap.android.maps.Marker m =
-                                (com.atakmap.android.maps.Marker) item;
-                        Log.d(TAG, "MARKER_DEBUG marker_class=true");
+                        if (item instanceof com.atakmap.android.maps.Marker) {
+                            Log.d(TAG, "MARKER_DEBUG marker_class=true");
+                        }
+                    } else {
+                        Log.d(TAG, "MARKER_DEBUG item not found uid=" + event.getUID());
                     }
-                } else {
-                    Log.d(TAG, "MARKER_DEBUG item not found uid=" + event.getUID());
+                } catch (Exception dbg) {
+                    Log.e(TAG, "MARKER_DEBUG failed", dbg);
                 }
-            } catch (Exception dbg) {
-                Log.e(TAG, "MARKER_DEBUG failed", dbg);
             }
         } catch (Exception e) {
             Log.w(TAG, "Failed to dispatch via CotMapComponent, "

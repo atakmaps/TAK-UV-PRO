@@ -103,7 +103,16 @@ public class SettingsFragment extends PluginPreferenceFragment
         if (retryMaxPref != null) {
             String max = prefs.getString(PREF_RETRY_MAX, DEFAULT_RETRY_MAX);
             retryMaxPref.setSummary("Up to " + max + " retransmit attempt(s) before failure");
-        }    }
+        }
+
+        Preference saRelayPref = findPreference(PREF_SA_RELAY_ENABLED);
+        if (saRelayPref != null) {
+            boolean on = prefs.getBoolean(PREF_SA_RELAY_ENABLED, false);
+            saRelayPref.setSummary(on
+                    ? "On — network PLI/markers/routes relayed over radio when connected"
+                    : "Off");
+        }
+    }
 
     @Override
     public String getSubTitle() {

@@ -74,6 +74,7 @@ public class UVProDropDownReceiver extends DropDownReceiver
     private TextView logText;
     private TextView encryptionStatusText;
     private TextView beaconIntervalText;
+    private TextView saRelayStatusText;
     private TextView teamColorText;
     private Button btnScan;
     private Button btnDisconnect;
@@ -183,6 +184,7 @@ public class UVProDropDownReceiver extends DropDownReceiver
         logText = rootView.findViewById(getId("text_log"));
         encryptionStatusText = rootView.findViewById(getId("text_encryption_status"));
         beaconIntervalText = rootView.findViewById(getId("text_beacon_interval"));
+        saRelayStatusText = rootView.findViewById(getId("text_sa_relay_status"));
         teamColorText = rootView.findViewById(getId("text_team_color"));
         btnScan = rootView.findViewById(getId("btn_scan"));
         btnDisconnect = rootView.findViewById(getId("btn_disconnect"));
@@ -414,6 +416,12 @@ public class UVProDropDownReceiver extends DropDownReceiver
             beaconIntervalText.setText(beaconSec + "s");
         }
 
+        boolean saOn = SettingsFragment.isSaRelayEnabled(ctx);
+        if (saRelayStatusText != null) {
+            saRelayStatusText.setText(saOn ? "On" : "Off");
+            saRelayStatusText.setTextColor(saOn ? 0xFF4CAF50 : 0xFF888888);
+        }
+
         // Team color (ATAK preference)
         try {
             String teamColor = com.atakmap.android.chat.ChatManagerMapComponent.getTeamName();
@@ -600,6 +608,10 @@ public class UVProDropDownReceiver extends DropDownReceiver
 
                     editor.apply();
                     appendLog("Settings saved");
+                    appendLog("SA Relay " + (switchSaRelay.isChecked() ? "enabled" : "disabled"));
+                    if (rootView != null) {
+                        getMapView().post(() -> updateStatusFields());
+                    }
                     try {
                         AtakBroadcast.getInstance().sendBroadcast(
                                 new Intent(UVProMapComponent.ACTION_BEACON_INTERVAL_CHANGED));
