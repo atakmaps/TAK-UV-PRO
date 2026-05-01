@@ -15,10 +15,10 @@ import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 
 /**
- * AES-256-GCM for RF payloads with PBKDF2-HMAC-SHA256 key derivation.
+ * AES-256-GCM RF envelope (v3) with per-payload salt and IV; KDF uses PBKDF2-HMAC-SHA256.
  *
  * <p>Envelope v3: {@code [0x03][16-byte salt][12-byte nonce][ciphertext || GCM tag]}.
- * Salt and nonce are random per payload; peers use the same operator-entered shared secret.
+ * Salt and nonce are random per payload; peers use matching operator-supplied RF crypto input.
  */
 public class EncryptionManager {
 
@@ -38,7 +38,7 @@ public class EncryptionManager {
     private final SecureRandom random = new SecureRandom();
 
     /**
-     * Supply the operator shared secret, or {@code null} / empty to disable RF crypto.
+     * Supply the operator RF crypto string, or {@code null} / empty to disable RF crypto.
      */
     public void setSharedSecret(String secret) {
         wipeSharedSecret();
@@ -134,9 +134,10 @@ public class EncryptionManager {
             Cipher cipher = Cipher.getInstance(GCM_CIPHER);
             GCMParameterSpec gcmSpec = new GCMParameterSpec(GCM_TAG_BITS, iv);
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), gcmSpec);
-            return cipher.doFinal(ciphertext);
+            byte[] plain = cipher.doFinal(ciphertext);
+            return Arrays.copyOf(plain, plain.length);
         } catch (GeneralSecurityException e) {
-            Log.w(TAG, "Decrypt failed — wrong shared secret, corrupt data, or peer mismatch");
+            Log.w(TAG, "Decrypt failed — wrong RF crypto string, corrupt data, or peer mismatch");
             return null;
         } finally {
             if (key != null) {

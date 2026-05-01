@@ -1,6 +1,13 @@
 apply plugin: 'com.android.application'
 apply plugin: 'atak-takdev-plugin'
 
+/** Local SDK: app/libs/atak-civ/android_keystore. takrepo/CI: copied to app/build/android_keystore. */
+def resolveAtakSigningKeystore() {
+    def sdkKs = rootProject.file("app/libs/atak-civ/android_keystore")
+    def buildKs = file("${buildDir}/android_keystore")
+    return sdkKs.exists() ? sdkKs : buildKs
+}
+
 android {
     compileSdk 33
     namespace 'com.btechrelay.plugin'
@@ -29,18 +36,17 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
-    // Signing uses the ATAK SDK's publicly distributed demo keystore.
-    // These are well-known credentials shipped with every copy of the SDK —
-    // they are NOT secrets. For production releases, use your own keystore.
+    // Signing uses the ATAK SDK demo keystore (well-known credentials — not secrets).
+    // Local: app/libs/atak-civ/. takrepo/CI: takdev copies keystore to app/build/ (see resolveAtakSigningKeystore).
     signingConfigs {
         debug {
-            storeFile file("${rootDir}/app/libs/atak-civ/android_keystore")
+            storeFile resolveAtakSigningKeystore()
             storePassword "tnttnt"
             keyAlias "wintec_mapping"
             keyPassword "tnttnt"
         }
         release {
-            storeFile file("${rootDir}/app/libs/atak-civ/android_keystore")
+            storeFile resolveAtakSigningKeystore()
             storePassword "tnttnt"
             keyAlias "wintec_mapping"
             keyPassword "tnttnt"
@@ -94,8 +100,11 @@ android {
     defaultConfig {
         minSdkVersion 21
         targetSdkVersion 33
+        // TPP (and similar CI) only has fixed NDK revisions installed — do not declare a version
+        // that would make Gradle download one via SDK Manager. Use one of the image allowlist
+        // (e.g. 12.1.2977051, 21.0.6113669, 21.4.7075529, 23.0.7599858, 25.1.8937393).
         ndk {
-            ndkVersion "25.1.8937393"
+            ndkVersion "23.0.7599858"
             abiFilters "armeabi-v7a", "arm64-v8a", "x86"
         }
     }
