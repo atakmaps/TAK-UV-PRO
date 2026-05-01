@@ -27,6 +27,9 @@ app/build/
 *.apk
 *.ap_
 
+# Local-only agent / handoff notes (not published)
+NEW-AGENT-HANDOFF.md
+
 # Debug / scratch
 build_output.txt
 jar_list.txt
