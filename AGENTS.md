@@ -105,6 +105,18 @@ adb -s SERIAL shell am force-stop com.atakmap.app.civ
 adb -s SERIAL shell monkey -p com.atakmap.app.civ 1
 ```
 
+### Plugin debugging (Android Studio)
+
+Plugins (including BTECH Relay) run **inside the ATAK process**, not as a separate app. To hit breakpoints in plugin Java sources:
+
+1. Install the debug plugin APK and start ATAK on the device or emulator as usual.
+2. In Android Studio, use **Run → Attach Debugger to Android Process** (or start ATAK via a Studio run config if you have one).
+3. Select the **ATAK** process — for **ATAK-CIV** this is normally **`com.atakmap.app.civ`** (use `pm list packages | grep atakmap` if unsure). Official docs sometimes list `com.atakmap.app`; pick whatever matches your build.
+4. Enable **Show all processes** if ATAK does not appear in the list.
+5. If attach appears to do nothing, set the debugger type to **Java** (vs JDWP / auto).
+
+**Tips:** Attaching to an already-running ATAK is usually faster than launching ATAK from Studio. Native (JNI) debugging is often easier on an **emulator** than on a physical device.
+
 Reboot the phone:
 
 ```bash
