@@ -3,123 +3,155 @@ package com.btechrelay.plugin.crypto;
 import android.util.Log;
 
 import java.nio.ByteBuffer;
+import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.security.spec.KeySpec;
+import java.util.Arrays;
 
 import javax.crypto.Cipher;
-import javax.crypto.SecretKey;
 import javax.crypto.SecretKeyFactory;
-import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 
 /**
- * AES-256-CBC encryption for BtechRelay radio packets.
+ * AES-256-GCM for RF payloads with PBKDF2-HMAC-SHA256 key derivation.
  *
- * All nodes sharing the same passphrase can decrypt each other's packets.
- * Uses PBKDF2 to derive a 256-bit key from the passphrase.
- *
- * Wire format: [16-byte IV][encrypted payload]
+ * <p>Envelope v3: {@code [0x03][16-byte salt][12-byte nonce][ciphertext || GCM tag]}.
+ * Salt and nonce are random per payload; peers use the same operator-entered shared secret.
  */
 public class EncryptionManager {
 
     private static final String TAG = "BtechRelay.Crypto";
-    private static final String ALGORITHM = "AES/CBC/PKCS5Padding";
-    private static final String KEY_ALGORITHM = "PBKDF2WithHmacSHA256";
-    private static final int KEY_LENGTH = 256;
-    private static final int ITERATIONS = 10000;
-    private static final int IV_LENGTH = 16;
-    // Fixed salt for key derivation — all nodes must use the same salt
-    // so that the same passphrase produces the same key
-    private static final byte[] SALT = {
-            0x4f, 0x70, 0x65, 0x6e, 0x52, 0x65, 0x6c, 0x61,
-            0x79, 0x2d, 0x53, 0x41, 0x4c, 0x54, 0x76, 0x31
-    }; // "BtechRelay-SALTv1"
+    private static final byte ENVELOPE_V3 = 0x03;
+    private static final String GCM_CIPHER = "AES/GCM/NoPadding";
+    private static final String PBKDF2 = "PBKDF2WithHmacSHA256";
+    /** OWASP-aligned minimum for PBKDF2-HMAC-SHA256. */
+    private static final int PBKDF2_ITERATIONS = 310_000;
+    private static final int KEY_BITS = 256;
+    private static final int SALT_LEN = 16;
+    private static final int GCM_IV_LEN = 12;
+    private static final int GCM_TAG_BITS = 128;
 
-    private SecretKey secretKey;
+    private char[] sharedSecretChars;
     private boolean enabled = false;
     private final SecureRandom random = new SecureRandom();
 
     /**
-     * Set the encryption passphrase.
-     * Call with null or empty string to disable encryption.
+     * Supply the operator shared secret, or {@code null} / empty to disable RF crypto.
      */
-    public void setPassphrase(String passphrase) {
-        if (passphrase == null || passphrase.isEmpty()) {
+    public void setSharedSecret(String secret) {
+        wipeSharedSecret();
+        if (secret == null || secret.isEmpty()) {
             enabled = false;
-            secretKey = null;
-            Log.d(TAG, "Encryption disabled");
+            Log.d(TAG, "RF crypto disabled");
             return;
         }
+        sharedSecretChars = secret.toCharArray();
+        enabled = true;
+        Log.d(TAG, "RF crypto enabled");
+    }
 
-        try {
-            KeySpec spec = new PBEKeySpec(
-                    passphrase.toCharArray(), SALT, ITERATIONS, KEY_LENGTH);
-            SecretKeyFactory factory = SecretKeyFactory.getInstance(KEY_ALGORITHM);
-            byte[] keyBytes = factory.generateSecret(spec).getEncoded();
-            secretKey = new SecretKeySpec(keyBytes, "AES");
-            enabled = true;
-            Log.d(TAG, "Encryption enabled with passphrase");
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to derive encryption key", e);
-            enabled = false;
-            secretKey = null;
+    /** Releases sensitive material from memory. */
+    public void dispose() {
+        wipeSharedSecret();
+        enabled = false;
+    }
+
+    private void wipeSharedSecret() {
+        if (sharedSecretChars != null) {
+            Arrays.fill(sharedSecretChars, '\0');
+            sharedSecretChars = null;
         }
     }
 
     /**
      * Encrypt a payload.
-     * @param plaintext The raw data to encrypt
-     * @return [16-byte IV][ciphertext], or the original plaintext if encryption is disabled
+     *
+     * @return v3 envelope, original plaintext if crypto disabled, or {@code null} on failure
      */
     public byte[] encrypt(byte[] plaintext) {
-        if (!enabled || secretKey == null) return plaintext;
-
-        try {
-            byte[] iv = new byte[IV_LENGTH];
-            random.nextBytes(iv);
-
-            Cipher cipher = Cipher.getInstance(ALGORITHM);
-            cipher.init(Cipher.ENCRYPT_MODE, secretKey, new IvParameterSpec(iv));
-            byte[] ciphertext = cipher.doFinal(plaintext);
-
-            // Prepend IV to ciphertext
-            ByteBuffer result = ByteBuffer.allocate(IV_LENGTH + ciphertext.length);
-            result.put(iv);
-            result.put(ciphertext);
-            return result.array();
-        } catch (Exception e) {
-            Log.e(TAG, "Encryption failed — aborting send", e);
+        if (!enabled || sharedSecretChars == null) {
+            return plaintext;
+        }
+        if (plaintext == null) {
             return null;
+        }
+        byte[] key = null;
+        try {
+            byte[] salt = new byte[SALT_LEN];
+            random.nextBytes(salt);
+            key = deriveKey(sharedSecretChars, salt);
+            byte[] iv = new byte[GCM_IV_LEN];
+            random.nextBytes(iv);
+            Cipher cipher = Cipher.getInstance(GCM_CIPHER);
+            GCMParameterSpec gcmSpec = new GCMParameterSpec(GCM_TAG_BITS, iv);
+            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"), gcmSpec);
+            byte[] ciphertext = cipher.doFinal(plaintext);
+            ByteBuffer out = ByteBuffer.allocate(1 + SALT_LEN + GCM_IV_LEN + ciphertext.length);
+            out.put(ENVELOPE_V3);
+            out.put(salt);
+            out.put(iv);
+            out.put(ciphertext);
+            return out.array();
+        } catch (GeneralSecurityException e) {
+            Log.e(TAG, "Encrypt failed", e);
+            return null;
+        } finally {
+            if (key != null) {
+                Arrays.fill(key, (byte) 0);
+            }
         }
     }
 
     /**
-     * Decrypt a payload.
-     * @param data [16-byte IV][ciphertext]
-     * @return Decrypted plaintext, or null if decryption fails
+     * Decrypt a v3 envelope.
+     *
+     * @return plaintext, original {@code data} if crypto disabled, or {@code null} on failure
      */
     public byte[] decrypt(byte[] data) {
-        if (!enabled || secretKey == null) return data;
-
-        if (data.length < IV_LENGTH + 1) {
-            Log.w(TAG, "Data too short to contain IV + ciphertext");
+        if (!enabled || sharedSecretChars == null) {
+            return data;
+        }
+        if (data == null || data.length < 1 + SALT_LEN + GCM_IV_LEN + 16) {
+            Log.w(TAG, "RF payload too short for crypto envelope");
             return null;
         }
-
-        try {
-            byte[] iv = new byte[IV_LENGTH];
-            System.arraycopy(data, 0, iv, 0, IV_LENGTH);
-
-            byte[] ciphertext = new byte[data.length - IV_LENGTH];
-            System.arraycopy(data, IV_LENGTH, ciphertext, 0, ciphertext.length);
-
-            Cipher cipher = Cipher.getInstance(ALGORITHM);
-            cipher.init(Cipher.DECRYPT_MODE, secretKey, new IvParameterSpec(iv));
-            return cipher.doFinal(ciphertext);
-        } catch (Exception e) {
-            Log.w(TAG, "Decryption failed — wrong passphrase or unencrypted data");
+        if (data[0] != ENVELOPE_V3) {
+            Log.w(TAG, "Unsupported RF crypto envelope (peer may run an older plugin build)");
             return null;
+        }
+        byte[] key = null;
+        try {
+            ByteBuffer buf = ByteBuffer.wrap(data, 1, data.length - 1);
+            byte[] salt = new byte[SALT_LEN];
+            buf.get(salt);
+            byte[] iv = new byte[GCM_IV_LEN];
+            buf.get(iv);
+            byte[] ciphertext = new byte[buf.remaining()];
+            buf.get(ciphertext);
+            key = deriveKey(sharedSecretChars, salt);
+            Cipher cipher = Cipher.getInstance(GCM_CIPHER);
+            GCMParameterSpec gcmSpec = new GCMParameterSpec(GCM_TAG_BITS, iv);
+            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), gcmSpec);
+            return cipher.doFinal(ciphertext);
+        } catch (GeneralSecurityException e) {
+            Log.w(TAG, "Decrypt failed — wrong shared secret, corrupt data, or peer mismatch");
+            return null;
+        } finally {
+            if (key != null) {
+                Arrays.fill(key, (byte) 0);
+            }
+        }
+    }
+
+    private static byte[] deriveKey(char[] secret, byte[] salt) throws GeneralSecurityException {
+        KeySpec spec = new PBEKeySpec(secret, salt, PBKDF2_ITERATIONS, KEY_BITS);
+        SecretKeyFactory factory = SecretKeyFactory.getInstance(PBKDF2);
+        try {
+            return factory.generateSecret(spec).getEncoded();
+        } finally {
+            ((PBEKeySpec) spec).clearPassword();
         }
     }
 

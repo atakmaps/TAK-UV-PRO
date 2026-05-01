@@ -106,7 +106,12 @@ android {
     }
 }
 
+/* Official pipeline resolves the ATAK API from takrepo; local trees use compileOnly main.jar. */
+def atakMainJar = file("${rootDir}/app/libs/atak-civ/main.jar")
+
 dependencies {
     implementation fileTree(dir: 'libs', include: '*.jar')
-    compileOnly files("${rootDir}/app/libs/atak-civ/main.jar")
+    if (atakMainJar.exists()) {
+        compileOnly files(atakMainJar)
+    }
 }

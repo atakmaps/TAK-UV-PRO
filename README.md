@@ -12,7 +12,7 @@ A free, open-source ATAK plugin that connects BTECH radios to the Android Team A
 | **Retry on no ACK + delivery failure alert** | ✅ Working | If the sender receives no delivered ACK within the configured interval (default 2 min), the message is retransmitted up to the configured maximum (default 3 attempts). If all retries are exhausted, a persistent alert dialog appears on the sender’s screen and must be acknowledged by tapping OK before it dismisses. Retry interval and max retries are adjustable in plugin Settings. |
 | **Contact-targeted CoT over RF (waypoints, routes, casevac, etc.)** | ✅ Working | Any CoT item sendable to a contact in ATAK — waypoints, routes, casevac/9-line, drawings, enemy/friendly markers — is intercepted, compressed, and relayed over RF to the target radio contact. Items exceeding 4 KB compressed are skipped with a log warning. |
 | **SA Relay (opt-in)** | 🔧 In Development | Network-to-radio bridge: broadcasts received SA (positions, waypoints, routes) over RF to radio-only users. Infrastructure implemented; UI pending field validation. |
-| **AES-256 Encryption** | ✅ Working | Optional passphrase-based AES-256-CBC encryption for all radio traffic. All nodes must share the same passphrase. |
+| **AES-256 Encryption** | ✅ Working | Optional shared-secret AES-256-GCM for all radio traffic (PBKDF2 key derivation, random salt per payload). All nodes must use the same secret. Encrypted links require **1.5.3+ on every radio**; mixed older builds cannot decrypt v3 envelopes. |
 | **Contact Tracking** | ✅ Working | Radios in range are tracked as contacts with callsign, last-seen time, and position. Contacts that go silent are aged out. |
 | **Bluetooth Auto-Reconnect** | ✅ Working | Three-strategy SPP connection with exponential backoff reconnect (up to 5 attempts). |
 | **Send Ping** | ✅ Working | Lightweight keepalive — lets other nodes know you're active even without GPS. |
@@ -150,7 +150,7 @@ Then open ATAK → Menu → Tools → **BTECH Relay**.
 
 | Control | What It Does |
 |---------|-------------|
-| **AES-256 Switch** | Enable encryption (set a passphrase first) |
+| **AES-256-GCM switch** | Enable encryption (enter the shared secret first) |
 | **Send Beacon** | Immediately broadcast your current position |
 | **Send Ping** | Send a lightweight keepalive with your callsign |
 | **Settings** | Configure beacon interval, SA Relay, and other plugin options (team color is controlled by ATAK core settings) |
@@ -200,7 +200,7 @@ app/src/main/java/com/btechrelay/plugin/
 ├── chat/
 │   └── ChatBridge.java           # GeoChat ↔ radio relay
 ├── crypto/
-│   └── EncryptionManager.java    # AES-256-CBC encryption
+│   └── EncryptionManager.java    # AES-256-GCM + PBKDF2 (envelope v3)
 ├── contacts/
 │   ├── ContactTracker.java       # Track radios in range
 │   └── RadioContact.java         # Contact data model

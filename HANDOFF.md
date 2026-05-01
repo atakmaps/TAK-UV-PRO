@@ -188,7 +188,7 @@ Practical takeaway: badge behavior involves multiple hooks (broadcasts, contact 
 - **Ping/keepalive**: lightweight presence/hello.
 
 ### Encryption
-If enabled, payload is encrypted (AES-256-CBC derived from passphrase). All nodes must share the same passphrase; failures drop packets.
+If enabled, payload uses envelope v3: AES-256-GCM with PBKDF2-HMAC-SHA256 (310k iter) and random salt per payload. All nodes must share the same secret; failures drop packets. Pre-1.5.3 CBC payloads are not supported.
 
 ## Known issues / design decisions (as of this handoff)
 

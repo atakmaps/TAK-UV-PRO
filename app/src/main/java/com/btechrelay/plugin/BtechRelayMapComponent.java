@@ -98,7 +98,7 @@ try {
         // 1b. Encryption
         encryptionManager = new EncryptionManager();
         if (SettingsFragment.isEncryptionEnabled(context)) {
-            encryptionManager.setPassphrase(
+            encryptionManager.setSharedSecret(
                     SettingsFragment.getEncryptionPassphrase(context));
         }
         cotBridge.setEncryptionManager(encryptionManager);
@@ -219,6 +219,10 @@ try {
         ToolsPreferenceFragment.unregister("btechRelayPreference");
 
         // Shutdown in reverse order
+        if (encryptionManager != null) {
+            encryptionManager.dispose();
+            encryptionManager = null;
+        }
         if (btConnectionManager != null) {
             btConnectionManager.disconnect();
             btConnectionManager = null;

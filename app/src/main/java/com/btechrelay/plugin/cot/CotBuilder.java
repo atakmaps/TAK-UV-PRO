@@ -399,11 +399,11 @@ public class CotBuilder {
      * Decompress a GZIP-compressed CoT XML.
      */
     public static String decompressCot(byte[] compressed) {
+        byte[] buf = new byte[512];
         try {
             ByteArrayInputStream bais = new ByteArrayInputStream(compressed);
             GZIPInputStream gzip = new GZIPInputStream(bais);
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            byte[] buf = new byte[512];
             int n;
             while ((n = gzip.read(buf)) > 0) {
                 baos.write(buf, 0, n);
@@ -414,6 +414,8 @@ public class CotBuilder {
         } catch (Exception e) {
             Log.e(TAG, "Failed to decompress CoT", e);
             return null;
+        } finally {
+            java.util.Arrays.fill(buf, (byte) 0);
         }
     }
 }

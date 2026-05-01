@@ -220,32 +220,30 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
                 }
 
                 if (!isChecked && encryptionManager != null) {
-                    encryptionManager.setPassphrase(null);
+                    encryptionManager.setSharedSecret(null);
                     updateEncryptionStatus();
                     appendLog("Encryption disabled");
                 } else if (isChecked) {
-                    // Check if passphrase already set
                     String existing = SettingsFragment.getEncryptionPassphrase(
                             getMapView().getContext());
                     if (existing != null && !existing.isEmpty() && encryptionManager != null) {
-                        encryptionManager.setPassphrase(existing);
+                        encryptionManager.setSharedSecret(existing);
                         updateEncryptionStatus();
-                        appendLog("Encryption enabled (AES-256)");
+                        appendLog("Encryption enabled (AES-256-GCM)");
                     } else {
                         updateEncryptionStatus();
-                        appendLog("Set passphrase to enable encryption");
+                        appendLog("Configure shared secret to enable encryption");
                     }
                 }
             });
         }
 
-        // --- Set passphrase button ---
         if (btnSetPassphrase != null) {
             btnSetPassphrase.setOnClickListener(v -> {
                 if (editPassphrase == null) return;
                 String pass = editPassphrase.getText().toString().trim();
                 if (pass.isEmpty()) {
-                    appendLog("Passphrase cannot be empty");
+                    appendLog("Shared secret cannot be empty");
                     return;
                 }
                 SharedPreferences prefs = PreferenceManager
@@ -253,11 +251,11 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
                 prefs.edit().putString(SettingsFragment.PREF_ENCRYPTION_PASSPHRASE, pass).apply();
 
                 if (encryptionManager != null) {
-                    encryptionManager.setPassphrase(pass);
+                    encryptionManager.setSharedSecret(pass);
                 }
                 editPassphrase.setText("");
                 updateEncryptionStatus();
-                appendLog("Passphrase set — encryption active");
+                appendLog("Shared secret saved — encryption active");
             });
         }
 
@@ -404,7 +402,6 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
             switchEncryption.setChecked(encOn);
         }
 
-        // Show/hide passphrase row
         if (passphraseRow != null) {
             passphraseRow.setVisibility(encOn ? View.VISIBLE : View.GONE);
         }
@@ -432,13 +429,13 @@ public class BtechRelayDropDownReceiver extends DropDownReceiver
         boolean encOn = SettingsFragment.isEncryptionEnabled(getMapView().getContext());
         String pass = SettingsFragment.getEncryptionPassphrase(getMapView().getContext());
         if (encOn && pass != null && !pass.isEmpty()) {
-            encryptionStatusText.setText("\u2705 AES-256 active");
+            encryptionStatusText.setText("\u2705 AES-256-GCM active");
             encryptionStatusText.setTextColor(0xFF4CAF50);
         } else if (encOn) {
-            encryptionStatusText.setText("\u26A0 Set passphrase to activate");
+            encryptionStatusText.setText("\u26A0 Enter shared secret to activate");
             encryptionStatusText.setTextColor(0xFFFF9800);
         } else {
-            encryptionStatusText.setText("All radios must share the same passphrase");
+            encryptionStatusText.setText("All radios must use the same shared secret");
             encryptionStatusText.setTextColor(0xFF888888);
         }
     }

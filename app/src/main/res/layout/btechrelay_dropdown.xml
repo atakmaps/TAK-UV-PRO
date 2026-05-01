@@ -130,7 +130,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="AES-256 Encryption"
+                    android:text="AES-256-GCM encryption"
                     android:textColor="#FFFFFFFF"
                     android:textSize="13sp" />
 
@@ -155,7 +155,7 @@
                     android:layout_width="0dp"
                     android:layout_height="40dp"
                     android:layout_weight="1"
-                    android:hint="Shared passphrase"
+                    android:hint="Shared secret"
                     android:textColor="#FFFFFFFF"
                     android:textColorHint="#FF666666"
                     android:textSize="13sp"
@@ -179,7 +179,7 @@
                 android:id="@+id/text_encryption_status"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="All radios must share the same passphrase"
+                android:text="All radios must use the same shared secret"
                 android:textColor="#FF888888"
                 android:textSize="11sp"
                 android:paddingTop="4dp" />

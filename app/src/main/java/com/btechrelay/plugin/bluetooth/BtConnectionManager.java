@@ -352,9 +352,9 @@ public class BtConnectionManager {
                 try {
                     int bytesRead = inputStream.read(buffer);
                     if (bytesRead > 0) {
-                        // Feed bytes to KISS decoder
                         byte[] data = new byte[bytesRead];
                         System.arraycopy(buffer, 0, data, 0, bytesRead);
+                        java.util.Arrays.fill(buffer, (byte) 0);
 
                         // KissFrameDecoder accumulates bytes and emits
                         // complete AX.25 frames when FEND delimiters are found

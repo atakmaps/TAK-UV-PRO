@@ -47,10 +47,10 @@
 
         <com.atakmap.android.gui.PanEditTextPreference
             android:key="btechrelay_encryption_passphrase"
-            android:title="Encryption Passphrase"
-            android:summary="Shared passphrase — all radios must use the same one"
+            android:title="Encryption shared secret"
+            android:summary="Same value on every radio that uses RF encryption"
             android:defaultValue=""
-            android:dialogTitle="Enter Encryption Passphrase"
+            android:dialogTitle="Enter shared secret"
             android:inputType="textPassword" />
 
     </PreferenceCategory>

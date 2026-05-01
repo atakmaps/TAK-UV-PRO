@@ -266,8 +266,11 @@ public class PacketRouter {
                 java.nio.charset.StandardCharsets.US_ASCII).trim();
         String message = new String(msgBytes,
                 java.nio.charset.StandardCharsets.UTF_8);
+        java.util.Arrays.fill(senderBytes, (byte) 0);
+        java.util.Arrays.fill(roomBytes, (byte) 0);
+        java.util.Arrays.fill(msgBytes, (byte) 0);
 
-        Log.d(TAG, "Chat mid=" + messageId + " from " + sender + " [" + room + "]: " + message);
+        Log.d(TAG, "Chat mid=" + messageId + " from " + sender + " [" + room + "] len=" + message.length());
         chatBridge.injectRadioMessage(sender, room, message, messageId);
         chatBridge.sendRadioChatAck(messageId, BtechRelayPacket.ACK_KIND_DELIVERED);
     }

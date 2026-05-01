@@ -180,6 +180,7 @@ public class BtechRelayPacket {
         buf.get(callBytes);
         gps.callsign = new String(callBytes,
                 java.nio.charset.StandardCharsets.US_ASCII).trim();
+        java.util.Arrays.fill(callBytes, (byte) 0);
 
         gps.latitude = buf.getInt() / 1e7;
         gps.longitude = buf.getInt() / 1e7;
