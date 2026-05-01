@@ -13,6 +13,10 @@
     <string name="status_connected">Connected</string>
     <string name="status_error">Connection Error</string>
 
+    <!-- SA Relay -->
+    <string name="pref_sa_relay_title">Enable SA Relay</string>
+    <string name="pref_sa_relay_summary">Re-broadcast inbound network positions over radio to off-grid users. Throttled to one update per contact per 30 seconds.</string>
+
     <!-- Settings -->
     <string name="pref_category_radio">Radio Connection</string>
     <string name="pref_beacon_interval_title">GPS Beacon Interval</string>

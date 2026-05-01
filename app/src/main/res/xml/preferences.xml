@@ -2,6 +2,18 @@
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
 
     <PreferenceCategory
+        android:key="uvpro_cat_sa_relay"
+        android:title="SA Relay">
+
+        <com.atakmap.android.gui.PanCheckBoxPreference
+            android:key="uvpro_sa_relay_enabled"
+            android:title="Enable SA Relay"
+            android:summary="Re-broadcast inbound network positions over radio to off-grid users. Throttled to one update per contact per 30 seconds."
+            android:defaultValue="false" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
         android:key="uvpro_cat_radio"
         android:title="Radio Settings">
 
