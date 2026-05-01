@@ -4,6 +4,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.util.Log;
 
+import com.atakmap.android.contact.Contact;
+import com.atakmap.android.contact.Contacts;
+import com.atakmap.android.contact.IndividualContact;
+import com.atakmap.android.contact.PluginConnector;
 import com.atakmap.android.cot.CotMapComponent;
 import com.atakmap.android.ipc.AtakBroadcast;
 import com.atakmap.android.maps.MapView;
@@ -414,10 +418,11 @@ public class CotBridge {
 
             CotEvent event = CotEvent.parse(xml);
             if (event != null && event.isValid()) {
-                Log.d(TAG, "Injecting decompressed CoT: " + event.getUID());
-                if ("b-t-f".equals(event.getType())) {
-                    markInboundInjectSkipOutboundRelay(event.getUID());
-                }
+                Log.d(TAG, "Injecting decompressed CoT: type=" + event.getType()
+                        + " uid=" + event.getUID());
+                // Mark ALL injected CoT to skip outbound RF relay — prevents the
+                // PreSendProcessor from echoing received items back over the air.
+                markInboundInjectSkipOutboundRelay(event.getUID());
                 dispatchCotEvent(event);
             }
         } catch (Exception e) {
@@ -498,6 +503,9 @@ public class CotBridge {
      * Send a CoT event out over the radio link.
      * The CoT XML is gzipped and sent as an BtechRelay packet.
      */
+    /** Max compressed CoT size to send over RF. Larger items flood the channel. */
+    private static final int MAX_COT_COMPRESSED_BYTES = 4096;
+
     public void sendCotOverRadio(CotEvent event) {
         if (btManager == null || !btManager.isConnected()) {
             Log.w(TAG, "Not connected to radio — cannot send CoT");
@@ -512,8 +520,17 @@ public class CotBridge {
                 return;
             }
 
-            Log.d(TAG, "Sending CoT over radio: " + xml.length()
-                    + " bytes XML → " + compressed.length + " bytes compressed");
+            if (compressed.length > MAX_COT_COMPRESSED_BYTES) {
+                Log.w(TAG, "CoT too large for RF (" + compressed.length + " bytes compressed"
+                        + ", type=" + event.getType() + " uid=" + event.getUID()
+                        + ") — skipping to avoid blocking channel");
+                return;
+            }
+
+            Log.d(TAG, "Sending CoT over radio: type=" + event.getType()
+                    + " uid=" + event.getUID()
+                    + " xmlBytes=" + xml.length()
+                    + " compressedBytes=" + compressed.length);
 
             // Fragment if needed
             List<BtechRelayPacket> packets = PacketFragmenter.fragment(
@@ -679,6 +696,10 @@ public class CotBridge {
         preSendProcessor = (event, toUIDs) -> {
             if (event == null) return;
 
+            Log.d(TAG, "PreSendProcessor fired: type=" + event.getType()
+                    + " uid=" + event.getUID()
+                    + " toUIDs=" + (toUIDs == null ? "null" : java.util.Arrays.toString(toUIDs)));
+
             String type = event.getType();
             // GeoChat delivery/read receipts must never go back out over RF.
             if ("b-t-f-r".equals(type) || "b-t-f-d".equals(type)) {
@@ -708,10 +729,32 @@ public class CotBridge {
             boolean targetsBtechContact = false;
             if (toUIDs != null && toUIDs.length > 0) {
                 for (String uid : toUIDs) {
-                    if (uid != null && btechContactUids.contains(uid.trim())) {
+                    if (uid == null) continue;
+                    String trimmed = uid.trim();
+                    // Fast path: already registered in our in-memory set (populated on beacon).
+                    if (btechContactUids.contains(trimmed)) {
                         targetsBtechContact = true;
                         break;
                     }
+                    // Fallback: contact persisted from a previous session but no beacon yet
+                    // this session — check whether it carries our PluginConnector.
+                    try {
+                        Contact c = Contacts.getInstance().getContactByUuid(trimmed);
+                        Log.d(TAG, "PreSend UID lookup: " + trimmed + " → " + (c == null ? "null" : c.getClass().getSimpleName()));
+                        if (c instanceof IndividualContact) {
+                            com.atakmap.android.contact.Connector conn =
+                                    ((IndividualContact) c).getConnector(
+                                            PluginConnector.CONNECTOR_TYPE);
+                            if (conn instanceof PluginConnector
+                                    && ChatBridge.ACTION_PLUGIN_CONTACT_GEOCHAT_SEND.equals(
+                                            conn.getConnectionString())) {
+                                targetsBtechContact = true;
+                                // Also register now so future checks are fast.
+                                btechContactUids.add(trimmed);
+                                break;
+                            }
+                        }
+                    } catch (Exception ignored) {}
                 }
             }
 

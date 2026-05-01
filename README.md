@@ -10,7 +10,7 @@ A free, open-source ATAK plugin that connects BTECH radios to the Android Team A
 | **GeoChat over RF (contact-centric)** | ✅ Working | Chat to radio peers using ATAK’s native Contacts/GeoChat UI (plugin contacts route via RF transport). |
 | **GeoChat delivery receipts (checkmarks)** | ✅ Working | ATAK’s native single-checkmark (delivered) and double-checkmark (read) appear on the sender’s chat window. The receiving device sends a delivered ACK when the message arrives over RF, and a read ACK when the user opens the conversation. |
 | **Retry on no ACK + delivery failure alert** | ✅ Working | If the sender receives no delivered ACK within the configured interval (default 2 min), the message is retransmitted up to the configured maximum (default 3 attempts). If all retries are exhausted, a persistent alert dialog appears on the sender’s screen and must be acknowledged by tapping OK before it dismisses. Retry interval and max retries are adjustable in plugin Settings. |
-| **Markers / arbitrary CoT over RF from native Contacts UI** | — Not integrated | Older “bridge-style” relays could packetize CoT to RF; **this fork** focuses on Contacts + GeoChat. Generic “send marker/CoT to contact” routing is **not** wired here the way upstream described. Fragment/reassemble code paths may exist for reuse but are **not exposed as an end‑user feature.** |
+| **Contact-targeted CoT over RF (waypoints, routes, casevac, etc.)** | ✅ Working | Any CoT item sendable to a contact in ATAK — waypoints, routes, casevac/9-line, drawings, enemy/friendly markers — is intercepted, compressed, and relayed over RF to the target radio contact. Items exceeding 4 KB compressed are skipped with a log warning. |
 | **AES-256 Encryption** | ✅ Working | Optional passphrase-based AES-256-CBC encryption for all radio traffic. All nodes must share the same passphrase. |
 | **Contact Tracking** | ✅ Working | Radios in range are tracked as contacts with callsign, last-seen time, and position. Contacts that go silent are aged out. |
 | **Bluetooth Auto-Reconnect** | ✅ Working | Three-strategy SPP connection with exponential backoff reconnect (up to 5 attempts). |
@@ -160,7 +160,7 @@ Radio peers are represented as **native ATAK Contacts** (UIDs look like `ANDROID
 
 - open GeoChat with a radio contact (messages route over RF via the plugin).
 
-**Markers and other situational-awareness CoT** are **not** part of this fork’s advertised surface; upstream “bridge relay” behaviour is intentionally out of scope until it is redesigned for the contact-centric model.
+Waypoints, routes, casevac/9-line, drawings, and other CoT items can all be sent to a radio contact using the native ATAK "Send to Contact" UI. The plugin intercepts the outbound CoT, compresses it, fragments it if needed, and transmits it over RF.
 
 For deeper implementation details and a full “new agent” handoff (logic trees, key files, known ATAK gotchas), see `HANDOFF.md`.
 

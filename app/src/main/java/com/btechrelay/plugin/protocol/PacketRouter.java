@@ -5,6 +5,7 @@ import android.util.Log;
 import com.atakmap.android.contact.Contact;
 import com.atakmap.android.contact.Contacts;
 import com.atakmap.android.contact.IndividualContact;
+import com.atakmap.android.contact.IpConnector;
 import com.atakmap.android.maps.MapItem;
 import com.atakmap.android.maps.MapView;
 
@@ -318,8 +319,11 @@ public class PacketRouter {
 
             c.addConnector(new com.atakmap.android.contact.PluginConnector(
                     ChatBridge.ACTION_PLUGIN_CONTACT_GEOCHAT_SEND));
-            c.addConnector(new com.atakmap.android.contact.IpConnector(
-                    "BTECH_RELAY://" + uid));
+
+            // IpConnector with null sendIntent: makes contact visible in the SEND_LIST
+            // (ContactListAdapter hard-filters on IpConnector presence) without hijacking
+            // the CoT send path (isEmpty(null) → true → uniqueSelected preserved → sendCot fires).
+            c.addConnector(new IpConnector((String) null));
 
             com.atakmap.android.preference.AtakPreferences prefs =
                     new com.atakmap.android.preference.AtakPreferences(mv.getContext());

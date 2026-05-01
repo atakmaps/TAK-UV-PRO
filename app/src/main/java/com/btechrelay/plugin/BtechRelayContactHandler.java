@@ -88,8 +88,7 @@ public class BtechRelayContactHandler extends
 
     @Override
     public boolean isSupported(String type) {
-        return FileSystemUtils.isEquals(type, PluginConnector.CONNECTOR_TYPE)
-                || FileSystemUtils.isEquals(type, com.atakmap.android.contact.IpConnector.CONNECTOR_TYPE);
+        return FileSystemUtils.isEquals(type, PluginConnector.CONNECTOR_TYPE);
     }
 
     @Override

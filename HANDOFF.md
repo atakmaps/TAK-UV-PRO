@@ -10,9 +10,9 @@ The plugin started as a “bridge” (toggleable relays of PLI/SA and GeoChat). 
 
 - Plugin creates “sendable” ATAK contacts for radio peers (UIDs look like `ANDROID-<CALLSIGN>`).
 - **GeoChat** to those contacts routes through the plugin `PluginConnector` (Intent action) and is transmitted over RF.
-- **Markers / arbitrary SA CoT “send to contact” over RF is not an integrated/supported workflow in this fork** (upstream bridge behaviour may still have partial hooks/code paths; README documents what we actually ship).
+- **Contact-targeted CoT** (waypoints, routes, casevac/9-line, drawings, etc.) is intercepted by `CotBridge.PreSendProcessor`, compressed, and relayed over RF to the target radio contact.
 
-This fork does **not** aim to blindly relay all ATAK SA over RF; outbound traffic is centred on **contacts + GeoChat** (plus beacon/PLI as implemented).
+This fork does **not** blindly relay all ATAK SA over RF; outbound traffic is centred on **contacts** (chat + targeted CoT) plus beacon/PLI.
 
 This framing explains several implementation choices below (connectors, routing hooks, badge integration).
 
@@ -124,9 +124,9 @@ Important detail: **the connector action matters**.
 - ATAK uses `new Intent(connector.getConnectionString())` for plugin contacts.
 - Therefore the plugin must register its connector with a connection string that is a **broadcast action** it listens for (currently `com.btechrelay.plugin.action.PLUGIN_CONTACT_GEOCHAT_SEND`).
 
-### C) Outbound markers / arbitrary CoT → RF (upstream / partial)
+### C) Outbound contact-targeted CoT → RF
 
-Older bridge designs expected “send marker/CoT → encode → RF.” **This fork does not advertise or commit to that UX.** Implementation may still include `PreSendProcessor` / comms-log paths in `CotBridge` from prior iterations; treat them as internal plumbing until re-scoped.
+`CotBridge` registers a `PreSendProcessor` with ATAK's `CommsMapComponent`. When ATAK dispatches a CoT event with a `toUIDs` list, the processor checks if any recipient is a known BTECH radio contact (fast path: `btechContactUids` set; fallback: `Contacts.getContactByUuid` + `PluginConnector` check). If matched, the CoT is gzip-compressed and handed to `PacketFragmenter` for RF transmission. Events exceeding 4 KB compressed are dropped with a warning. An inbound-inject skip set prevents echo loops.
 
 ## Contacts model (why `ANDROID-` UIDs exist)
 
@@ -206,7 +206,8 @@ Some ATAK singletons (e.g., `ChatManagerMapComponent`) may not be ready when the
 2. Ensure both are on RF.
 3. From VETTE: open Contacts → select `ANDROID-JUNIOR` (radio contact) → chat → send “hello”.
 4. On JUNIOR: verify message appears in native chat UI and badge clears when read.
-5. (Optional / not this fork’s focus) Sending markers or other non-chat CoT “to contact” over RF is **not** part of the current integrated surface; omit unless you are actively developing that path again.
+5. From VETTE: long-press a waypoint → Send → select JUNIOR → confirm the radio keys and JUNIOR's map updates.
+6. From VETTE: draw a short route, send to JUNIOR — verify RF relay and map update on the receiving end.
 
 ## Where to look first (debugging map)
 
