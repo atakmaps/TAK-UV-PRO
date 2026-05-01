@@ -414,8 +414,6 @@ public class CotBuilder {
         } catch (Exception e) {
             Log.e(TAG, "Failed to decompress CoT", e);
             return null;
-        } finally {
-            java.util.Arrays.fill(buf, (byte) 0);
         }
     }
 }

@@ -135,7 +135,9 @@ public class EncryptionManager {
             GCMParameterSpec gcmSpec = new GCMParameterSpec(GCM_TAG_BITS, iv);
             cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), gcmSpec);
             byte[] plain = cipher.doFinal(ciphertext);
-            return Arrays.copyOf(plain, plain.length);
+            byte[] result = Arrays.copyOf(plain, plain.length);
+            Arrays.fill(plain, (byte) 0);
+            return result;
         } catch (GeneralSecurityException e) {
             Log.w(TAG, "Decrypt failed — wrong RF crypto string, corrupt data, or peer mismatch");
             return null;
