@@ -36,18 +36,6 @@
     </PreferenceCategory>
 
     <PreferenceCategory
-        android:key="btechrelay_cat_sa_relay"
-        android:title="SA Relay">
-
-        <com.atakmap.android.gui.PanCheckBoxPreference
-            android:key="btechrelay_sa_relay_enabled"
-            android:title="Enable SA Relay"
-            android:summary="Broadcast received SA (positions, waypoints, routes) over radio to all users on frequency. Do not enable unless instructed by your team leader."
-            android:defaultValue="false" />
-
-    </PreferenceCategory>
-
-    <PreferenceCategory
         android:key="btechrelay_cat_security"
         android:title="Security">
 
