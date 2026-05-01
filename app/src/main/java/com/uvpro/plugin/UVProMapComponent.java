@@ -159,7 +159,7 @@ try {
         ToolsPreferenceFragment.register(
                 new ToolsPreferenceFragment.ToolPreference(
                         "UV-PRO Settings",
-                        "BTECH radio bridge configuration",
+                        "UV-PRO radio bridge configuration",
                         "uvproPreference",
                         context.getResources().getDrawable(
                                 context.getResources().getIdentifier(

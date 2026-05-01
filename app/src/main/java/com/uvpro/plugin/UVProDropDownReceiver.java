@@ -517,6 +517,25 @@ public class UVProDropDownReceiver extends DropDownReceiver
         layout.setOrientation(android.widget.LinearLayout.VERTICAL);
         layout.setPadding(48, 32, 48, 16);
 
+        // SA Relay (same pref as Tools → UV-PRO Settings → preferences.xml)
+        TextView labelSaRelay = new TextView(ctx);
+        labelSaRelay.setText("SA Relay");
+        labelSaRelay.setTextColor(0xFFFFFFFF);
+        labelSaRelay.setTextSize(16);
+        layout.addView(labelSaRelay);
+        Switch switchSaRelay = new Switch(ctx);
+        switchSaRelay.setText("Re-broadcast TAK network positions over radio");
+        switchSaRelay.setTextColor(0xFFCCCCCC);
+        switchSaRelay.setChecked(SettingsFragment.isSaRelayEnabled(ctx));
+        layout.addView(switchSaRelay);
+
+        TextView hintSaRelay = new TextView(ctx);
+        hintSaRelay.setText(
+                "Throttled: one update per contact per 30 s. Requires TAK server + radio connected.");
+        hintSaRelay.setTextColor(0xFF888888);
+        hintSaRelay.setTextSize(12);
+        layout.addView(hintSaRelay);
+
         // Beacon interval field
         TextView labelBeacon = new TextView(ctx);
         labelBeacon.setText("\nGPS Beacon Interval (seconds)");
@@ -559,6 +578,8 @@ public class UVProDropDownReceiver extends DropDownReceiver
                 .setView(scrollView)
                 .setPositiveButton("Save", (dialog, which) -> {
                     SharedPreferences.Editor editor = prefs.edit();
+                    editor.putBoolean(SettingsFragment.PREF_SA_RELAY_ENABLED,
+                            switchSaRelay.isChecked());
 
                     String newBeacon = editBeacon.getText().toString().trim();
                     if (!newBeacon.isEmpty()) {
