@@ -8,7 +8,7 @@ buildscript {
     ext.PLUGIN_VERSION = "1.5.2"
     ext.ATAK_VERSION = "5.5.1"
 
-    def takdevVersion = '3.+'
+    def takdevVersion = '2.+'
 
     def getValueFromPropertiesFile = { propFile, key ->
         if(!propFile.isFile() || !propFile.canRead())
