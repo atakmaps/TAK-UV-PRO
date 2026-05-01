@@ -76,6 +76,27 @@ public class CotBridge {
     private static final long SA_RELAY_INTERVAL_MS = 30_000;
     private long lastSaRelay = 0;
 
+    /** Per-UID throttle map for SA Relay to prevent channel flooding */
+    private final Map<String, Long> saRelayLastSentByUid = new ConcurrentHashMap<>();
+
+    /** CoT types broadcast by SA Relay */
+    private static final java.util.regex.Pattern SA_RELAY_TYPE_PATTERN =
+            java.util.regex.Pattern.compile(
+                    "^(a-[a-z]-G|b-m-p|b-m-r)");
+
+    /**
+     * Read SA Relay preference from plugin SharedPreferences.
+     * Called on the radio-receive thread; SharedPreferences reads are thread-safe.
+     */
+    private boolean isSaRelayEnabled() {
+        try {
+            return com.btechrelay.plugin.ui.SettingsFragment
+                    .isSaRelayEnabled(pluginContext);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /**
      * Injected inbound GeoChat (and similar) is re-processed by core comms; PreSendProcessor
      * then sees the same b-t-f with toUIDs pointing at a BTECH contact and would re-transmit
@@ -684,6 +705,7 @@ public class CotBridge {
 
             @Override
             public void logReceive(CotEvent event, String src, String dest) {
+                maybeSaRelayInboundNetworkCot(event);
             }
         };
         try {
@@ -822,6 +844,47 @@ public class CotBridge {
     }
 
     /**
+     * SA Relay: when enabled, broadcast inbound network CoT (PLI, waypoints, routes)
+     * over radio so radio-only users receive the picture.
+     *
+     * Guards:
+     *  - SA Relay setting must be on
+     *  - Radio must be connected
+     *  - CoT must match the relay type filter
+     *  - Must NOT be CoT that we injected from the radio (loop prevention)
+     *  - Must NOT be our own PLI (beacon already handles local position)
+     *  - Must respect the per-UID throttle so a fast-moving contact doesn't flood the channel
+     */
+    private void maybeSaRelayInboundNetworkCot(CotEvent event) {
+        if (event == null) return;
+        if (!isSaRelayEnabled()) return;
+        if (btManager == null || !btManager.isConnected()) return;
+
+        String type = event.getType();
+        if (type == null || !SA_RELAY_TYPE_PATTERN.matcher(type).find()) return;
+
+        String uid = event.getUID();
+        if (uid == null) return;
+
+        // Skip CoT we injected from the radio — loop prevention
+        if (shouldSkipOutboundRelayWasInboundInject(uid)) return;
+
+        // Skip our own PLI — the beacon timer handles local position
+        String localUid = null;
+        try { localUid = MapView.getDeviceUid(); } catch (Exception ignored) {}
+        if (uid.equals(localUid)) return;
+
+        // Per-UID throttle: don't relay the same contact more than once per SA_RELAY_INTERVAL_MS
+        long now = System.currentTimeMillis();
+        Long lastRelay = saRelayLastSentByUid.get(uid);
+        if (lastRelay != null && (now - lastRelay) < SA_RELAY_INTERVAL_MS) return;
+        saRelayLastSentByUid.put(uid, now);
+
+        Log.d(TAG, "SA Relay: broadcasting type=" + type + " uid=" + uid);
+        new Thread(() -> sendCotOverRadio(event)).start();
+    }
+
+    /**
      * Duplicate path after core comms successfully accepts the send — often skipped for
      * plugin-native contacts ("unknown contact" path). PreSend geo hook is authoritative.
      */
@@ -911,6 +974,9 @@ public class CotBridge {
             }
             outboundCommsLogger = null;
         }
+        btechContactUids.clear();
+        btechIdToUid.clear();
+        saRelayLastSentByUid.clear();
         Log.d(TAG, "CotBridge disposed");
     }
 }

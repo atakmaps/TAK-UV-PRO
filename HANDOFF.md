@@ -128,6 +128,17 @@ Important detail: **the connector action matters**.
 
 `CotBridge` registers a `PreSendProcessor` with ATAK's `CommsMapComponent`. When ATAK dispatches a CoT event with a `toUIDs` list, the processor checks if any recipient is a known BTECH radio contact (fast path: `btechContactUids` set; fallback: `Contacts.getContactByUuid` + `PluginConnector` check). If matched, the CoT is gzip-compressed and handed to `PacketFragmenter` for RF transmission. Events exceeding 4 KB compressed are dropped with a warning. An inbound-inject skip set prevents echo loops.
 
+
+### D) SA Relay — inbound network CoT → RF broadcast
+
+When `PREF_SA_RELAY_ENABLED` is true, `CotBridge.maybeSaRelayInboundNetworkCot` fires on every `CommsLogger.logReceive` call. It:
+1. Checks the type against `SA_RELAY_TYPE_PATTERN` (`a-*-G-*`, `b-m-p-*`, `b-m-r`).
+2. Skips UIDs in `inboundInjectSkipOutboundRelay` (loop prevention — these came from the radio).
+3. Skips the local device UID (beacon already handles self-position).
+4. Enforces a per-UID 30-second throttle via `saRelayLastSentByUid` to prevent flooding.
+5. Calls `sendCotOverRadio` on a background thread (same path as contact-targeted relay, size guard included).
+
+SA Relay is intentionally not enabled by default — it is designed for a single designated relay node.
 ## Contacts model (why `ANDROID-` UIDs exist)
 
 ATAK uses `ANDROID-<something>` UIDs for contacts/devices. To make radio peers behave like “real” ATAK contacts (sendable, chat-able), the plugin:

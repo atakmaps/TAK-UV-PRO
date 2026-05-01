@@ -28,6 +28,7 @@ public class SettingsFragment extends PluginPreferenceFragment
     public static final String PREF_ENCRYPTION_PASSPHRASE = "btechrelay_encryption_passphrase";
     public static final String PREF_RETRY_INTERVAL_MIN = "btechrelay_retry_interval_min";
     public static final String PREF_RETRY_MAX = "btechrelay_retry_max";
+    public static final String PREF_SA_RELAY_ENABLED = "btechrelay_sa_relay_enabled";
 
     public static final String DEFAULT_BEACON_INTERVAL = "300";
     public static final boolean DEFAULT_AUTO_RECONNECT = true;
@@ -191,6 +192,11 @@ public class SettingsFragment extends PluginPreferenceFragment
         } catch (Exception ignored) {
         }
         return "Cyan";
+    }
+
+    public static boolean isSaRelayEnabled(Context context) {
+        return getPrefs(context)
+                .getBoolean(PREF_SA_RELAY_ENABLED, false);
     }
 
     public static boolean isEncryptionEnabled(Context context) {
