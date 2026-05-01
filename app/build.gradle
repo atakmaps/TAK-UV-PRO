@@ -8,6 +8,22 @@ def resolveAtakSigningKeystore() {
     return sdkKs.exists() ? sdkKs : buildKs
 }
 
+/**
+ * TPC / signing-zipped trees have no .git; atak-takdev leaves getVersionName() empty (see build.log).
+ * Use a non-empty label so archive/APK names are not "1.5.4--5.5.1" and the manifest is readable.
+ * Override: -PpluginVcsId=ab12cd3
+ */
+def pluginVcsLabel = {
+    def s = getVersionName()
+    if (s == null || s.toString().trim().isEmpty()) {
+        if (project.hasProperty("pluginVcsId") && project.property("pluginVcsId")?.toString()?.trim()) {
+            return project.property("pluginVcsId").toString().trim()
+        }
+        return "tpc"
+    }
+    return s.toString()
+}
+
 android {
     compileSdk 33
     namespace 'com.btechrelay.plugin'
@@ -89,9 +105,9 @@ android {
 
     sourceSets {
         main {
-            setProperty("archivesBaseName", "ATAK-Plugin-BTECHRelay-" + PLUGIN_VERSION + "-" + getVersionName() + "-" + ATAK_VERSION)
+            setProperty("archivesBaseName", "ATAK-Plugin-BTECHRelay-" + PLUGIN_VERSION + "-" + pluginVcsLabel() + "-" + ATAK_VERSION)
             defaultConfig.versionCode = getVersionCode()
-            defaultConfig.versionName = PLUGIN_VERSION + " (" + getVersionName() + ") - [" + ATAK_VERSION + "]"
+            defaultConfig.versionName = PLUGIN_VERSION + " (" + pluginVcsLabel() + ") - [" + ATAK_VERSION + "]"
         }
         debug.setRoot('build-types/debug')
         release.setRoot('build-types/release')
