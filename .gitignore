@@ -2,7 +2,7 @@
 .gradle/
 build/
 local.properties
-gradle.properties
+# gradle.properties is tracked (shared JVM/AndroidX flags); keep machine-only overrides out of commits if you prefer.
 
 # TAK dev plugin tooling (timestamp/hash churn — regenerated per dev machine)
 .takdev/plugin.properties

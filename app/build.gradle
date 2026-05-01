@@ -28,6 +28,14 @@ android {
     compileSdk 33
     namespace 'com.btechrelay.plugin'
 
+    // atak-takdev takdevLint: release signing requires store archive flag off
+    // (AGP 8+ may default android.bundle.storeArchive.enable on; gradle.properties alone is not enough.)
+    bundle {
+        storeArchive {
+            enable = false
+        }
+    }
+
     // Local dev speed-up: only build civDebug.
     // Disable mil + release variants so the ATAK Gradle plugin does not waste time resolving them.
     // Optional dev-only speed optimization:

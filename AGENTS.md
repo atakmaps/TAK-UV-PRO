@@ -30,19 +30,14 @@ Obtain the SDK from a trusted source and place/extract the files there before bu
 
 ### Local config files (gitignored)
 
-Two files must exist at the repo root (both are gitignored — do not commit them):
+**`local.properties`** must exist at the repo root (gitignored) with at least the Android SDK location:
 
 **`local.properties`**
 ```
 sdk.dir=/opt/android-sdk
 ```
 
-**`gradle.properties`**
-```
-org.gradle.jvmargs=-Xmx2048m
-android.useAndroidX=true
-org.gradle.java.home=/usr/lib/jvm/java-17-openjdk-amd64
-```
+**`gradle.properties`** is **committed** in this repo (shared `org.gradle.jvmargs`, `android.useAndroidX`). If Gradle does not use JDK 17, add a machine-specific line such as `org.gradle.java.home=/usr/lib/jvm/java-17-openjdk-amd64` to that file or set **`JAVA_HOME`** to JDK 17. (Do not commit secrets; JDK paths are fine to keep local-only by reverting that line before a push, or use `gradle.properties.example` as a reference merge.)
 
 ### Environment variables needed for Gradle commands
 
@@ -158,5 +153,5 @@ adb -s SERIAL logcat -v time "*:S" BtechRelay.Router:D BtechRelay.ChatBridge:D B
 
 - The Gradle wrapper downloads Gradle 8.13 automatically on first run — no separate Gradle install needed.
 - JDK 21 is the system default; Gradle must be pointed at JDK 17 via `gradle.properties` (`org.gradle.java.home`) or the build will fail with "Android Gradle plugin requires Java 17".
-- `local.properties` and `gradle.properties` are gitignored. They must be re-created after each fresh VM provision.
+- `local.properties` is gitignored. `gradle.properties` is **tracked** with non-secret defaults; you may add `org.gradle.java.home` for your VM.
 - The ATAK keystore (`android_keystore`) bundled with the SDK uses well-known public credentials (`tnttnt`/`wintec_mapping`) — these are safe for debug/dev use but not for production releases.

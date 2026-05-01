@@ -5,7 +5,7 @@
 ////////////////////////////////////////////////////////////////////////////////////
 
 buildscript {
-    ext.PLUGIN_VERSION = "1.5.4"
+    ext.PLUGIN_VERSION = "1.5.5"
     ext.ATAK_VERSION = "5.5.1"
 
     def takdevVersion = '2.+'
@@ -64,6 +64,22 @@ buildscript {
             classpath "com.atakmap.gradle:atak-gradle-takdev:${takdevVersion}"
         } else {
             classpath files(takdevPlugin)
+        }
+    }
+}
+
+// R8: app/proguard-gradle.txt uses -applymapping <atak.proguard.mapping>. TPC/takrepo sets
+// this when resolving ATAK from Artifactory. For local `assembleCivRelease`, use a real
+// `proguard-civ-release-mapping.txt` in app/libs/atak-civ/ if you have it, else a committed
+// empty file so the build completes. Prefer the TPC-built APK for public distribution.
+if (!System.getProperty("atak.proguard.mapping")) {
+    def userMap = file("app/libs/atak-civ/proguard-civ-release-mapping.txt")
+    if (userMap.exists()) {
+        System.setProperty("atak.proguard.mapping", userMap.canonicalPath)
+    } else {
+        def placeholder = file("tools/empty-atak-applymapping.txt")
+        if (placeholder.exists()) {
+            System.setProperty("atak.proguard.mapping", placeholder.canonicalPath)
         }
     }
 }

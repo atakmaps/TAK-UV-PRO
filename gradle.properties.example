@@ -1,5 +1,7 @@
 # Gradle properties for BTECH Relay ATAK Plugin
-# Copy this file to gradle.properties and update the JDK path for your system.
+# The repository includes a committed `gradle.properties` with shared flags.
+# For the JDK path on your machine, merge a line such as org.gradle.java.home below
+# into `gradle.properties`, or set JAVA_HOME to JDK 17.
 
 org.gradle.jvmargs=-Xmx2048m
 android.useAndroidX=true
