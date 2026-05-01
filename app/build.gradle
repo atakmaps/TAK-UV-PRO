@@ -26,7 +26,7 @@ def pluginVcsLabel = {
 
 android {
     compileSdk 33
-    namespace 'com.btechrelay.plugin'
+    namespace 'com.uvpro.plugin'
 
     // atak-takdev takdevLint: release signing requires store archive flag off
     // (AGP 8+ may default android.bundle.storeArchive.enable on; gradle.properties alone is not enough.)
@@ -113,7 +113,7 @@ android {
 
     sourceSets {
         main {
-            setProperty("archivesBaseName", "ATAK-Plugin-BTECHRelay-" + PLUGIN_VERSION + "-" + pluginVcsLabel() + "-" + ATAK_VERSION)
+            setProperty("archivesBaseName", "ATAK-Plugin-UVPro-" + PLUGIN_VERSION + "-" + pluginVcsLabel() + "-" + ATAK_VERSION)
             defaultConfig.versionCode = getVersionCode()
             defaultConfig.versionName = PLUGIN_VERSION + " (" + pluginVcsLabel() + ") - [" + ATAK_VERSION + "]"
         }

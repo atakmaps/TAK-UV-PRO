@@ -67,11 +67,11 @@
 ################################################################################
 ################################################################################
 
--repackageclasses atakplugin.BtechRelay
+-repackageclasses atakplugin.UVPro
 
 ################################################################################
 ## Rules specific to BtechRelay plugin
 ################################################################################
 
--keep class com.btechrelay.plugin.** { *; }
+-keep class com.uvpro.plugin.** { *; }
 -dontwarn android.bluetooth.**

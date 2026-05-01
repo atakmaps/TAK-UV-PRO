@@ -2,7 +2,7 @@
 
 ## Project overview
 
-BTECH Relay is an Android ATAK plugin (APK) that bridges BTECH radios to ATAK over Bluetooth SPP / KISS TNC.
+UV-PRO is an Android ATAK plugin (APK) that bridges UV-PRO radios to ATAK over Bluetooth SPP / KISS TNC.
 It is built with the Android Gradle Plugin and the ATAK-CIV 5.5.1 SDK.
 
 ## Cursor Cloud specific instructions
@@ -57,7 +57,7 @@ export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 ./gradlew assembleCivDebug
 ```
 
-APK output: `app/build/outputs/apk/civ/debug/ATAK-Plugin-BTECHRelay-*.apk`
+APK output: `app/build/outputs/apk/civ/debug/ATAK-Plugin-UVPro-*.apk`
 
 ### Lint
 
@@ -72,10 +72,10 @@ There are no unit or instrumentation tests in this repo currently. The only auto
 ### Install on device
 
 ```bash
-adb install -r app/build/outputs/apk/civ/debug/ATAK-Plugin-BTECHRelay-*.apk
+adb install -r app/build/outputs/apk/civ/debug/ATAK-Plugin-UVPro-*.apk
 ```
 
-Then open ATAK → Menu → Tools → **BTECH Relay**.
+Then open ATAK → Menu → Tools → **UV-PRO**.
 
 ### Device debugging (ADB)
 
@@ -90,7 +90,7 @@ adb devices
 Target one device when multiple phones are plugged in (`-s SERIAL`):
 
 ```bash
-adb -s SERIAL install -r app/build/outputs/apk/civ/debug/ATAK-Plugin-BTECHRelay-*.apk
+adb -s SERIAL install -r app/build/outputs/apk/civ/debug/ATAK-Plugin-UVPro-*.apk
 ```
 
 Restart ATAK only:
@@ -102,7 +102,7 @@ adb -s SERIAL shell monkey -p com.atakmap.app.civ 1
 
 ### Plugin debugging (Android Studio)
 
-Plugins (including BTECH Relay) run **inside the ATAK process**, not as a separate app. To hit breakpoints in plugin Java sources:
+Plugins (including UV-PRO) run **inside the ATAK process**, not as a separate app. To hit breakpoints in plugin Java sources:
 
 1. Install the debug plugin APK and start ATAK on the device or emulator as usual.
 2. In Android Studio, use **Run → Attach Debugger to Android Process** (or start ATAK via a Studio run config if you have one).
@@ -134,7 +134,7 @@ adb -s SERIAL shell rm -rf /sdcard/ATAK
 Optional: clear the **plugin** sandbox only (plugin prefs; does **not** remove ATAK’s GeoChat DB):
 
 ```bash
-adb -s SERIAL shell pm clear --user 0 com.btechrelay.plugin
+adb -s SERIAL shell pm clear --user 0 com.uvpro.plugin
 ```
 
 If `pm clear` seems to do nothing, confirm you are clearing the correct **Android user** (work profiles add extra user ids):
@@ -146,7 +146,7 @@ adb -s SERIAL shell pm list users
 ### Logcat (plugin + chat while testing)
 
 ```bash
-adb -s SERIAL logcat -v time "*:S" BtechRelay.Router:D BtechRelay.ChatBridge:D BtechRelay.CotBridge:D BTRelay.Handler:I ChatManagerMapComponent:D
+adb -s SERIAL logcat -v time "*:S" UVPro.Router:D UVPro.ChatBridge:D UVPro.CotBridge:D BTRelay.Handler:I ChatManagerMapComponent:D
 ```
 
 ### Notes

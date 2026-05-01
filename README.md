@@ -1,6 +1,6 @@
-# BTECH Relay — Open-Source BTECH Radio ↔ ATAK Bridge Plugin
+# UV-PRO — Open-Source BTECH Radio ↔ ATAK Bridge Plugin
 
-A free, open-source ATAK plugin that connects BTECH radios to the Android Team Awareness Kit (ATAK) over Bluetooth. Team members with radios can share positions, chat, and situational awareness data entirely off-grid — no cell service or internet required.
+A free, open-source ATAK plugin that connects UV-PRO radios to the Android Team Awareness Kit (ATAK) over Bluetooth. Team members with radios can share positions, chat, and situational awareness data entirely off-grid — no cell service or internet required.
 
 ## Features
 
@@ -23,7 +23,7 @@ A free, open-source ATAK plugin that connects BTECH radios to the Android Team A
 ┌─────────────────────────────────────┐
 │           ATAK Application          │
 │  ┌───────────────────────────────┐  │
-│  │      BTECH Relay Plugin        │  │
+│  │      UV-PRO Plugin        │  │
 │  │                                │  │
 │  │  Bluetooth ─► KISS TNC ─►    │  │
 │  │  AX.25 frames ─► Packet      │  │
@@ -49,7 +49,7 @@ The plugin talks to the radio over Bluetooth SPP using the KISS TNC protocol. Da
 
 ### To Use the Plugin
 - **ATAK-CIV 5.5.1** (or compatible version) installed on your Android device
-- **BTECH UV-PRO** radio (UV-PRO, GMRS-PRO, or UV-50X series with KISS TNC support)
+- **UV-PRO** radio (UV-PRO, GMRS-PRO, or UV-50X series with KISS TNC support)
 - **Bluetooth** pairing between the Android device and radio
 
 ### To Build from Source
@@ -66,15 +66,15 @@ If you just want to install the plugin without building it:
 
 1. Download the latest APK from the [Releases](../../releases) page.
 2. Transfer it to your Android device.
-3. Install with: `adb install -r BTECHRelay-*.apk`
-4. Open ATAK → Menu → Tools → **BTECH Relay**.
+3. Install with: `adb install -r UVPro-*.apk`
+4. Open ATAK → Menu → Tools → **UV-PRO**.
 
-APK filenames look like `ATAK-Plugin-BTECHRelay-*-civ-release.apk` (or `civ-debug` for debug builds).
+APK filenames look like `ATAK-Plugin-UVPro-*-civ-release.apk` (or `civ-debug` for debug builds).
 
 ## GitHub releases and signing
 
 - **Third-party (TPC) signing:** The APK that is fully aligned with **stock ATAK-CIV** and the usual install rules is the one built and signed on the **TAK Product Center third-party pipeline** (takrepo). It may show the standard indicator that the plugin was signed with the third-party service. No extra code is required in this repo for that — trust comes from the **pipeline signature**, not a flag in Java.
-- **GitHub Releases:** Each [release](https://github.com/atakmaps/BTECH-Relay/releases) can attach the **same civ-release APK** produced for that version (ideally the TPC output). You can also build `assembleCivRelease` yourself (see below); for **public distribution**, prefer the **TPC-signed** binary when you have it.
+- **GitHub Releases:** Each [release](https://github.com/atakmaps/UV-PRO/releases) can attach the **same civ-release APK** produced for that version (ideally the TPC output). You can also build `assembleCivRelease` yourself (see below); for **public distribution**, prefer the **TPC-signed** binary when you have it.
 - **Local `assembleCivRelease`:** ProGuard/R8 needs an **ATAK apply-mapping** file. This repo sets `atak.proguard.mapping` automatically: if you place the real `proguard-civ-release-mapping.txt` from a TPC/takrepo build in `app/libs/atak-civ/`, that is used; otherwise a **placeholder empty mapping** (`tools/empty-atak-applymapping.txt`) is used so the build completes. A build with the placeholder is fine for **CI smoke tests**; for **field use**, prefer a release built with the **official ATAK mapping** and/or the **TPC APK**.
 - The `android` block in `app/build.gradle` sets `bundle { storeArchive { enable = false } }` as required by **atak-takdev** `takdevLint` for release signing.
 
@@ -117,8 +117,8 @@ Open `gradle.properties` and set `org.gradle.java.home` to your JDK 17 if needed
 
 ```bash
 # Clone the repo
-git clone https://github.com/atakmaps/BTECH-Relay.git
-cd BTECH-Relay
+git clone https://github.com/atakmaps/UV-PRO.git
+cd UV-PRO
 
 # Linux/macOS
 ./gradlew assembleCivDebug
@@ -129,16 +129,16 @@ gradlew.bat assembleCivDebug
 
 The APK will be at:
 ```
-app/build/outputs/apk/civ/debug/ATAK-Plugin-BTECHRelay-*.apk
+app/build/outputs/apk/civ/debug/ATAK-Plugin-UVPro-*.apk
 ```
 
 ### 4. Install
 
 ```bash
-adb install -r app/build/outputs/apk/civ/debug/ATAK-Plugin-BTECHRelay-*.apk
+adb install -r app/build/outputs/apk/civ/debug/ATAK-Plugin-UVPro-*.apk
 ```
 
-Then open ATAK → Menu → Tools → **BTECH Relay**.
+Then open ATAK → Menu → Tools → **UV-PRO**.
 
 ### 5. Release (minified) build — `assembleCivRelease`
 
@@ -152,7 +152,7 @@ For a **R8/ProGuard** release build (smaller, obfuscated) matching the TPC `civR
 Output:
 
 ```
-app/build/outputs/apk/civ/release/ATAK-Plugin-BTECHRelay-*-civ-release.apk
+app/build/outputs/apk/civ/release/ATAK-Plugin-UVPro-*-civ-release.apk
 ```
 
 Use the **official ProGuard apply-mapping** from the ATAK/takrepo pipeline when you need a **production-equivalent** binary (see [GitHub releases and signing](#github-releases-and-signing) above).
@@ -169,7 +169,7 @@ Use the **official ProGuard apply-mapping** from the ATAK/takrepo pipeline when 
 ## Usage
 
 1. **Pair your radio** with your Android device via Bluetooth settings.
-2. Open the **BTECH Relay** plugin in ATAK.
+2. Open the **UV-PRO** plugin in ATAK.
 3. Tap **Scan** to find your radio, then tap it to connect.
 4. The status dot turns green when connected.
 
@@ -203,11 +203,11 @@ When enabled, all outgoing packets are encrypted with AES-256-CBC using a key de
 ## Project Structure
 
 ```
-app/src/main/java/com/btechrelay/plugin/
-├── BtechRelayLifecycle.java       # Plugin entry point
-├── BtechRelayTool.java            # Tool registration
-├── BtechRelayMapComponent.java    # Core component — wires everything together
-├── BtechRelayDropDownReceiver.java # UI panel
+app/src/main/java/com/uvpro/plugin/
+├── UVProLifecycle.java       # Plugin entry point
+├── UVProTool.java            # Tool registration
+├── UVProMapComponent.java    # Core component — wires everything together
+├── UVProDropDownReceiver.java # UI panel
 ├── bluetooth/
 │   └── BtConnectionManager.java  # Bluetooth SPP + KISS TNC connection
 ├── kiss/
@@ -218,7 +218,7 @@ app/src/main/java/com/btechrelay/plugin/
 │   ├── Ax25Frame.java            # AX.25 frame builder/parser
 │   └── AprsParser.java           # APRS position parser
 ├── protocol/
-│   ├── BtechRelayPacket.java      # Binary packet format
+│   ├── UVProPacket.java      # Binary packet format
 │   ├── PacketRouter.java         # Routes incoming packets to subsystems
 │   └── PacketFragmenter.java     # Fragment/reassemble large packets
 ├── cot/

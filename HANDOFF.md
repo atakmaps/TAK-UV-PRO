@@ -1,4 +1,4 @@
-# BTECH Relay / ATAK Plugin — Handoff & Architecture (for new agents)
+# UV-PRO / ATAK Plugin — Handoff & Architecture (for new agents)
 
 This document is a **high-signal handoff** for a new engineer/agent coming into this repo mid-stream. It focuses on: how ATAK ↔ plugin integration works, how radio packets flow (BLE/KISS/AX.25), and the non-obvious ATAK behaviors discovered during the current iteration.
 
@@ -20,16 +20,16 @@ This framing explains several implementation choices below (connectors, routing 
 
 ### Core objects (by responsibility)
 
-- **`BtechRelayMapComponent`**: plugin lifecycle + wiring. Initializes bluetooth, router, CoT + chat bridges. Starts timers/listeners.
+- **`UVProMapComponent`**: plugin lifecycle + wiring. Initializes bluetooth, router, CoT + chat bridges. Starts timers/listeners.
 - **`BtConnectionManager`**: Bluetooth SPP link to the radio. Owns connect/reconnect behavior and raw byte IO.
 - **KISS layer** (`kiss/`): wraps/unwraps AX.25 frames into KISS frames for TNC-over-serial style links.
 - **AX.25 layer** (`ax25/`): parse/build AX.25 frames; APRS parsing for “standard” position payloads.
 - **`PacketRouter`**: takes inbound frames/payloads and routes them to subsystems (chat, GPS/PLI, CoT fragments).
-- **`BtechRelayPacket`**: compact binary packet formats for “BTECH relay” messages (chat, gps, etc.).
+- **`UVProPacket`**: compact binary packet formats for “BTECH relay” messages (chat, gps, etc.).
 - **`PacketFragmenter`**: fragment/reassemble large payloads (notably large CoT) into multiple radio frames.
 - **`CotBridge`** / **`CotBuilder`**: map CoT ⇄ radio. Inject inbound CoT into ATAK, build outbound position CoT, and relay CoT to radio when appropriate.
 - **`ChatBridge`**: GeoChat ⇄ radio. Inject inbound radio chat into ATAK’s chat pipeline; intercept ATAK outbound chat to plugin contacts and send over radio.
-- **`BtechRelayContactHandler`**: ATAK connector integration, including unread badge (`NotificationCount`) for plugin connector address.
+- **`UVProContactHandler`**: ATAK connector integration, including unread badge (`NotificationCount`) for plugin connector address.
 - **`ContactTracker`** / `RadioContact`: maintains in-range/last-seen contacts and their latest state.
 
 ### ATAK integration points used (high level)
@@ -59,7 +59,7 @@ KISS decoder → AX.25 frame(s)
   ↓
 PacketRouter
   ├─ if APRS position → map contact update/injection (APRS parser path)
-  ├─ if BtechRelayPacket.Chat:
+  ├─ if UVProPacket.Chat:
   │     ↓
   │   ChatBridge.injectRadioMessage(...)
   │     ├─ records wire mid in pendingReadAcksByConversation[senderUID]
@@ -68,16 +68,16 @@ PacketRouter
   │     ↓
   │   ATAK GeoChat parser creates/updates thread + message
   │     ↓
-  │   BtechRelayContactHandler increments NotificationCount (unread badge)
+  │   UVProContactHandler increments NotificationCount (unread badge)
   │     ↓
   │   PacketRouter sends ACK_KIND_DELIVERED back to sender over RF
   │     (ACK_KIND_READ is sent later, when user opens the conversation — see clearUnreadLocal)
-  ├─ if BtechRelayPacket.Gps/PLI:
+  ├─ if UVProPacket.Gps/PLI:
   │     ↓
   │   CotBridge.injectPositionCot(...)
   │     ↓
   │   ATAK renders marker/contact on map
-  └─ if BtechRelayPacket.CotFragment:
+  └─ if UVProPacket.CotFragment:
         ↓
       PacketFragmenter reassembles full CoT XML
         ↓
@@ -105,7 +105,7 @@ Plugin registers BroadcastReceiver for ACTION_PLUGIN_CONTACT_GEOCHAT_SEND
   ↓
 ChatBridge.handleOutgoingChat / relayPluginGeoChatMessageBundle
   ↓
-BtechRelayPacket.createChatPacket (assigns messageId)
+UVProPacket.createChatPacket (assigns messageId)
   ↓
 EncryptionManager (optional)
   ↓
@@ -122,11 +122,11 @@ RF
 
 Important detail: **the connector action matters**.
 - ATAK uses `new Intent(connector.getConnectionString())` for plugin contacts.
-- Therefore the plugin must register its connector with a connection string that is a **broadcast action** it listens for (currently `com.btechrelay.plugin.action.PLUGIN_CONTACT_GEOCHAT_SEND`).
+- Therefore the plugin must register its connector with a connection string that is a **broadcast action** it listens for (currently `com.uvpro.plugin.action.PLUGIN_CONTACT_GEOCHAT_SEND`).
 
 ### C) Outbound contact-targeted CoT → RF
 
-`CotBridge` registers a `PreSendProcessor` with ATAK's `CommsMapComponent`. When ATAK dispatches a CoT event with a `toUIDs` list, the processor checks if any recipient is a known BTECH radio contact (fast path: `btechContactUids` set; fallback: `Contacts.getContactByUuid` + `PluginConnector` check). If matched, the CoT is gzip-compressed and handed to `PacketFragmenter` for RF transmission. Events exceeding 4 KB compressed are dropped with a warning. An inbound-inject skip set prevents echo loops.
+`CotBridge` registers a `PreSendProcessor` with ATAK's `CommsMapComponent`. When ATAK dispatches a CoT event with a `toUIDs` list, the processor checks if any recipient is a known UV-PRO radio contact (fast path: `btechContactUids` set; fallback: `Contacts.getContactByUuid` + `PluginConnector` check). If matched, the CoT is gzip-compressed and handed to `PacketFragmenter` for RF transmission. Events exceeding 4 KB compressed are dropped with a warning. An inbound-inject skip set prevents echo loops.
 
 
 ### D) SA Relay — inbound network CoT → RF broadcast
@@ -167,11 +167,11 @@ Key principles implemented in `CotBuilder.buildChatCot(...)` and `CotBridge.inje
 
 ATAK can query a connector feature `NotificationCount` from contacts/connectors. The plugin uses:
 
-- `BtechRelayContactHandler.getFeature(NotificationCount)` to return unread count for the plugin connector address only.
+- `UVProContactHandler.getFeature(NotificationCount)` to return unread count for the plugin connector address only.
 - A deduplicating unread key set per UID so each inbound message increments once.
 - A set of listeners to clear unread when ATAK considers the conversation read, including “chat window already open” cases where ATAK doesn’t fire a simple mark-read broadcast.
 
-Practical takeaway: badge behavior involves multiple hooks (broadcasts, contact change listeners, visibility polling). If this breaks, focus on `ChatBridge` + `BtechRelayContactHandler`.
+Practical takeaway: badge behavior involves multiple hooks (broadcasts, contact change listeners, visibility polling). If this breaks, focus on `ChatBridge` + `UVProContactHandler`.
 
 ## BLE / AX.25 / packet formats (what goes over the wire)
 
@@ -179,7 +179,7 @@ Practical takeaway: badge behavior involves multiple hooks (broadcasts, contact 
 - **Bluetooth SPP**: raw serial-like link between Android and radio.
 - **KISS**: framing protocol to carry AX.25 over serial.
 - **AX.25**: amateur packet framing used for RF packet radio.
-- **BtechRelayPacket**: plugin’s compact binary payload inside AX.25 info field (plus optional APRS parser path for standard packets).
+- **UVProPacket**: plugin’s compact binary payload inside AX.25 info field (plus optional APRS parser path for standard packets).
 
 ### Packet types (conceptually)
 - **Chat packet**: includes sender callsign, destination/thread id, message text, and a `messageId`.
@@ -233,7 +233,7 @@ Some ATAK singletons (e.g., `ChatManagerMapComponent`) may not be ready when the
 - local UID caching for GeoChat fields
 
 ### If unread badge count is wrong / doesn’t clear
-- `BtechRelayContactHandler` unread keying + `NotificationCount`
+- `UVProContactHandler` unread keying + `NotificationCount`
 - `ChatBridge` listeners for mark-read / open-chat / fragment visibility polling
 - ensure `Contacts.getInstance().updateTotalUnreadCount()` is called on clear
 
@@ -243,12 +243,12 @@ Some ATAK singletons (e.g., `ChatManagerMapComponent`) may not be ready when the
 
 ## Key files (jump list)
 
-- Wiring/lifecycle: `app/src/main/java/com/btechrelay/plugin/BtechRelayMapComponent.java`
-- UI dropdown: `app/src/main/java/com/btechrelay/plugin/BtechRelayDropDownReceiver.java`
-- Contacts/unread: `app/src/main/java/com/btechrelay/plugin/BtechRelayContactHandler.java`
-- Outbound/inbound chat: `app/src/main/java/com/btechrelay/plugin/chat/ChatBridge.java`
-- CoT bridge/builder: `app/src/main/java/com/btechrelay/plugin/cot/CotBridge.java`, `app/src/main/java/com/btechrelay/plugin/cot/CotBuilder.java`
-- Packet routing: `app/src/main/java/com/btechrelay/plugin/protocol/PacketRouter.java`, `app/src/main/java/com/btechrelay/plugin/protocol/BtechRelayPacket.java`
-- Fragmentation: `app/src/main/java/com/btechrelay/plugin/protocol/PacketFragmenter.java`
-- BLE: `app/src/main/java/com/btechrelay/plugin/bluetooth/BtConnectionManager.java`
+- Wiring/lifecycle: `app/src/main/java/com/uvpro/plugin/UVProMapComponent.java`
+- UI dropdown: `app/src/main/java/com/uvpro/plugin/UVProDropDownReceiver.java`
+- Contacts/unread: `app/src/main/java/com/uvpro/plugin/UVProContactHandler.java`
+- Outbound/inbound chat: `app/src/main/java/com/uvpro/plugin/chat/ChatBridge.java`
+- CoT bridge/builder: `app/src/main/java/com/uvpro/plugin/cot/CotBridge.java`, `app/src/main/java/com/uvpro/plugin/cot/CotBuilder.java`
+- Packet routing: `app/src/main/java/com/uvpro/plugin/protocol/PacketRouter.java`, `app/src/main/java/com/uvpro/plugin/protocol/UVProPacket.java`
+- Fragmentation: `app/src/main/java/com/uvpro/plugin/protocol/PacketFragmenter.java`
+- BLE: `app/src/main/java/com/uvpro/plugin/bluetooth/BtConnectionManager.java`
 

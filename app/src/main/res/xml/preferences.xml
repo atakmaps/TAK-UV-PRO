@@ -2,12 +2,12 @@
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
 
     <PreferenceCategory
-        android:key="btechrelay_cat_radio"
+        android:key="uvpro_cat_radio"
         android:title="Radio Settings">
 
 
         <com.atakmap.android.gui.PanListPreference
-            android:key="btechrelay_beacon_interval"
+            android:key="uvpro_beacon_interval"
             android:title="GPS Beacon Interval"
             android:summary="How often to broadcast position"
             android:defaultValue="60"
@@ -16,7 +16,7 @@
             android:entryValues="@array/beacon_interval_values" />
 
         <com.atakmap.android.gui.PanListPreference
-            android:key="btechrelay_retry_interval_min"
+            android:key="uvpro_retry_interval_min"
             android:title="Retry Interval"
             android:summary="How long to wait before retransmitting an unacknowledged message"
             android:defaultValue="2"
@@ -25,7 +25,7 @@
             android:entryValues="@array/retry_interval_values" />
 
         <com.atakmap.android.gui.PanListPreference
-            android:key="btechrelay_retry_max"
+            android:key="uvpro_retry_max"
             android:title="Max Retries"
             android:summary="Number of retransmit attempts before declaring delivery failure"
             android:defaultValue="3"
@@ -36,17 +36,17 @@
     </PreferenceCategory>
 
     <PreferenceCategory
-        android:key="btechrelay_cat_security"
+        android:key="uvpro_cat_security"
         android:title="Security">
 
         <com.atakmap.android.gui.PanCheckBoxPreference
-            android:key="btechrelay_encryption_enabled"
+            android:key="uvpro_encryption_enabled"
             android:title="Enable Encryption"
             android:summary="Encrypt all data sent over radio"
             android:defaultValue="false" />
 
         <com.atakmap.android.gui.PanEditTextPreference
-            android:key="btechrelay_encryption_passphrase"
+            android:key="uvpro_encryption_passphrase"
             android:title="Encryption shared secret"
             android:summary="Same value on every radio that uses RF encryption"
             android:defaultValue=""
@@ -56,11 +56,11 @@
     </PreferenceCategory>
 
     <PreferenceCategory
-        android:key="btechrelay_cat_bluetooth"
+        android:key="uvpro_cat_bluetooth"
         android:title="Bluetooth">
 
         <com.atakmap.android.gui.PanCheckBoxPreference
-            android:key="btechrelay_auto_reconnect"
+            android:key="uvpro_auto_reconnect"
             android:title="Auto-Reconnect"
             android:summary="Automatically reconnect to last known radio"
             android:defaultValue="true" />

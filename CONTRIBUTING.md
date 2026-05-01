@@ -1,7 +1,7 @@
-# Contributing to BTECH Relay
+# Contributing to UV-PRO
 
-Thanks for your interest in contributing! BTECH Relay is a free, open-source ATAK plugin
-for off-grid team communication via BTECH radios.
+Thanks for your interest in contributing! UV-PRO is a free, open-source ATAK plugin
+for off-grid team communication via UV-PRO radios.
 
 ## Building
 

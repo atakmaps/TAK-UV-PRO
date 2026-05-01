@@ -3,7 +3,7 @@
 
     <extension
         type="gov.tak.api.plugin.IPlugin"
-        impl="com.btechrelay.plugin.BtechRelayLifecycle"
+        impl="com.uvpro.plugin.UVProLifecycle"
         singleton="true" />
 
 </plugin>
