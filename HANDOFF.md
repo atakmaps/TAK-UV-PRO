@@ -139,6 +139,48 @@ When `PREF_SA_RELAY_ENABLED` is true, `CotBridge.maybeSaRelayInboundNetworkCot` 
 5. Calls `sendCotOverRadio` on a background thread (same path as contact-targeted relay, size guard included).
 
 SA Relay is intentionally not enabled by default — it is designed for a single designated relay node.
+
+### SA Relay — v1.7.1 additions
+
+**Settings surface (two paths)**
+
+Prior to 1.7.1 the SA Relay toggle was only accessible via ATAK Menu → Tools → UV-PRO Settings
+(the `preferences.xml` path).  Two changes close the gap:
+
+- **Dropdown gear dialog** (`UVProDropDownReceiver.showSettingsDialog`): the inline settings
+  dialog that opens from the UV-PRO panel now includes an SA Relay switch with a descriptive hint
+  ("Throttled: one update per contact per 30 s. Requires TAK server + radio connected."). The
+  switch reads/writes `PREF_SA_RELAY_ENABLED` via `SettingsFragment.isSaRelayEnabled` and
+  `SharedPreferences`. Saving the dialog refreshes the dropdown status row immediately via
+  `updateStatusFields()`.
+
+- **Tools preferences XML** (`app/src/main/res/xml/preferences.xml`): a dedicated
+  `PreferenceCategory` "SA Relay" now appears at the top of the UV-PRO Settings screen using a
+  `PanCheckBoxPreference` keyed to `uvpro_sa_relay_enabled`. Dynamic summary via
+  `SettingsFragment.onResume` shows "On — network PLI/markers/routes relayed over radio when
+  connected" or "Off".
+
+**Main panel status row**
+
+`uvpro_dropdown.xml` gained a new `SA Relay (TAK → radio)` status row in the Beacon group.
+`UVProDropDownReceiver.updateStatusFields()` populates `text_sa_relay_status` with green "On" or
+grey "Off" based on the current pref value.  The value refreshes whenever the dropdown is opened
+and after every settings save.
+
+**`SA_RELAY_TYPE_PATTERN` Javadoc**
+
+`CotBridge.SA_RELAY_TYPE_PATTERN` (the regex that gates which inbound CoT types are eligible for
+relay) received a formal Javadoc comment:
+> Inbound network CoT types eligible for SA Relay (network → radio).
+> Matches friendly SA (`a-*-G…`), points/markers (`b-m-p…`), routes (`b-m-r…`).
+
+**Debug logging gated on `BuildConfig.DEBUG`**
+
+`MARKER_DEBUG` logcat blocks in `CotBridge.injectCompressedCoT` are now wrapped in
+`if (BuildConfig.DEBUG)` so release builds produce no verbose marker-inspection output.
+
+---
+
 ## Contacts model (why `ANDROID-` UIDs exist)
 
 ATAK uses `ANDROID-<something>` UIDs for contacts/devices. To make radio peers behave like “real” ATAK contacts (sendable, chat-able), the plugin:

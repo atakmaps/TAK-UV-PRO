@@ -39,6 +39,9 @@ logs/
 scratch/*
 !scratch/README.txt
 
+# Generated portal drop (tools/package-submission.sh)
+submission/
+
 # OS files
 Thumbs.db
 .DS_Store

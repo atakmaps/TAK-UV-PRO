@@ -70,7 +70,7 @@
 -repackageclasses atakplugin.UVPro
 
 ################################################################################
-## Rules specific to BtechRelay plugin
+## Rules specific to UV-PRO plugin (com.uvpro.plugin)
 ################################################################################
 
 -keep class com.uvpro.plugin.** { *; }
