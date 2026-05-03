@@ -4,9 +4,12 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.preference.Preference;
+import android.preference.PreferenceCategory;
 import android.preference.PreferenceManager;
 
 import com.atakmap.android.chat.ChatManagerMapComponent;
+import com.atakmap.android.gui.PanPreference;
+import com.atakmap.android.maps.MapView;
 import com.atakmap.android.preference.PluginPreferenceFragment;
 
 /**
@@ -29,6 +32,10 @@ public class SettingsFragment extends PluginPreferenceFragment
     public static final String PREF_RETRY_INTERVAL_MIN = "uvpro_retry_interval_min";
     public static final String PREF_RETRY_MAX = "uvpro_retry_max";
     public static final String PREF_SA_RELAY_ENABLED = "uvpro_sa_relay_enabled";
+
+    /** Injected after inflate — some ATAK builds omit custom Pan* prefs from XML. */
+    public static final String KEY_BLUETOOTH_DEVICES = "uvpro_bluetooth_devices";
+    public static final String KEY_CAT_RADIO = "uvpro_cat_radio";
 
     public static final String DEFAULT_BEACON_INTERVAL = "300";
     public static final boolean DEFAULT_AUTO_RECONNECT = true;
@@ -59,6 +66,91 @@ public class SettingsFragment extends PluginPreferenceFragment
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        ensureBluetoothDevicesPreference();
+    }
+
+    /**
+     * Ensures "Bluetooth Devices" appears under Radio Settings. Preference is added
+     * programmatically so it survives ATAK preference-inflation quirks.
+     */
+    private void ensureBluetoothDevicesPreference() {
+        android.util.Log.d("UVPro.Settings", "ensureBluetoothDevicesPreference called");
+        Preference existing = findPreference(KEY_BLUETOOTH_DEVICES);
+        if (existing != null) {
+            android.util.Log.d("UVPro.Settings", "bluetooth pref already exists, wiring click");
+            wireBluetoothDevicesClick(existing);
+            return;
+        }
+
+        // Try the radio category first, fall back to the bluetooth category
+        PreferenceCategory radio = (PreferenceCategory) findPreference(KEY_CAT_RADIO);
+        android.util.Log.d("UVPro.Settings", "uvpro_cat_radio lookup: " + radio);
+        if (radio == null) {
+            radio = (PreferenceCategory) findPreference("uvpro_cat_bluetooth");
+            android.util.Log.d("UVPro.Settings", "uvpro_cat_bluetooth fallback: " + radio);
+        }
+        if (radio == null) {
+            // Last resort: add directly to the root preference screen
+            android.preference.PreferenceScreen root = getPreferenceScreen();
+            android.util.Log.d("UVPro.Settings", "preferenceScreen: " + root
+                    + (root != null ? ", count=" + root.getPreferenceCount() : ""));
+            if (root == null) return;
+            Context ctx = getContext();
+            if (ctx == null) ctx = staticPluginContext;
+            if (ctx == null) return;
+            try {
+                PanPreference p = new PanPreference(ctx);
+                p.setKey(KEY_BLUETOOTH_DEVICES);
+                p.setTitle("Bluetooth Devices");
+                p.setSummary("Radios you have connected — rename, favorite, delete");
+                p.setPersistent(false);
+                p.setSelectable(true);
+                root.addPreference(p);
+                wireBluetoothDevicesClick(p);
+                android.util.Log.d("UVPro.Settings", "added bluetooth pref to root screen");
+            } catch (Exception e) {
+                android.util.Log.e("UVPro.Settings", "Could not add bluetooth pref to root", e);
+            }
+            return;
+        }
+
+        Context ctx = getContext();
+        if (ctx == null) ctx = staticPluginContext;
+        if (ctx == null) {
+            android.util.Log.e("UVPro.Settings", "context is null, cannot create PanPreference");
+            return;
+        }
+        try {
+            PanPreference p = new PanPreference(ctx);
+            p.setKey(KEY_BLUETOOTH_DEVICES);
+            p.setTitle("Bluetooth Devices");
+            p.setSummary("Radios you have connected — rename, favorite, delete");
+            p.setPersistent(false);
+            p.setSelectable(true);
+            p.setOrder(-1000);
+            radio.addPreference(p);
+            wireBluetoothDevicesClick(p);
+            android.util.Log.d("UVPro.Settings", "added bluetooth pref to category: " + radio.getKey());
+        } catch (Exception e) {
+            android.util.Log.e("UVPro.Settings",
+                    "Could not add Bluetooth Devices preference", e);
+        }
+    }
+
+    private void wireBluetoothDevicesClick(Preference bt) {
+        bt.setOnPreferenceClickListener(preference -> {
+            Context c = getActivity() != null ? getActivity() : getContext();
+            try {
+                if (c == null && MapView.getMapView() != null) {
+                    c = MapView.getMapView().getContext();
+                }
+            } catch (Exception ignored) {
+            }
+            if (c != null) {
+                BluetoothDevicesManagement.show(c, null);
+            }
+            return true;
+        });
     }
 
     @Override

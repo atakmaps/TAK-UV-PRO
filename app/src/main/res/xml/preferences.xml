@@ -17,7 +17,6 @@
         android:key="uvpro_cat_radio"
         android:title="Radio Settings">
 
-
         <com.atakmap.android.gui.PanListPreference
             android:key="uvpro_beacon_interval"
             android:title="GPS Beacon Interval"
@@ -70,6 +69,13 @@
     <PreferenceCategory
         android:key="uvpro_cat_bluetooth"
         android:title="Bluetooth">
+
+        <Preference
+            android:key="uvpro_bluetooth_devices"
+            android:title="Bluetooth Devices"
+            android:summary="Radios you have connected — rename, favorite, delete"
+            android:persistent="false"
+            android:selectable="true" />
 
         <com.atakmap.android.gui.PanCheckBoxPreference
             android:key="uvpro_auto_reconnect"

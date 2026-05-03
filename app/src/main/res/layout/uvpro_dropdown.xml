@@ -72,6 +72,42 @@
                 android:paddingTop="2dp"
                 android:visibility="gone" />
 
+            <TextView
+                android:id="@+id/favorites_label"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="FAVORITE RADIOS"
+                android:textColor="#FF00BCD4"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:paddingTop="6dp"
+                android:visibility="gone" />
+
+            <HorizontalScrollView
+                android:id="@+id/favorites_scroll"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="4dp"
+                android:scrollbars="none"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:id="@+id/favorites_strip"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
+
+            <TextView
+                android:id="@+id/connect_mode_hint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textColor="#FF888888"
+                android:textSize="10sp"
+                android:paddingTop="4dp"
+                android:visibility="gone" />
+
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
