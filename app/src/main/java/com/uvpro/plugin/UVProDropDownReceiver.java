@@ -41,6 +41,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Set;
 import java.util.Locale;
 
 /**
@@ -289,35 +290,34 @@ public class UVProDropDownReceiver extends DropDownReceiver
     }
 
     private void onScanOrConnectClicked() {
+        if (btManager.isConnected()) {
+            btManager.disconnect();
+            return;
+        }
         Context ctx = getMapView().getContext();
-        String tgt = BluetoothDeviceRegistry.getConnectTargetAddress(ctx);
-        if (tgt != null && !btManager.isConnected()) {
-            BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-            if (adapter == null) {
-                appendLog("Bluetooth not available");
-                return;
+
+        // Build list of bonded devices that have been previously connected through this plugin
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        if (adapter == null) { appendLog("Bluetooth not available"); return; }
+
+        Set<BluetoothDevice> bonded = adapter.getBondedDevices();
+        foundDevices.clear();
+        if (bonded != null) {
+            for (BluetoothDevice d : bonded) {
+                if (BluetoothDeviceRegistry.find(ctx, d.getAddress()) != null) {
+                    foundDevices.add(d);
+                }
             }
-            try {
-                BluetoothDevice d = adapter.getRemoteDevice(tgt);
-                BtDeviceRecord rec = BluetoothDeviceRegistry.find(ctx, tgt);
-                String label = rec != null
-                        ? BluetoothDeviceRegistry.getDisplayTitle(rec)
-                        : tgt;
-                appendLog("Connecting to " + label + "...");
-                btManager.connect(d);
-            } catch (IllegalArgumentException ex) {
-                appendLog("Invalid saved radio address — clearing selection");
-                BluetoothDeviceRegistry.setConnectTargetAddress(ctx, "");
-                refreshFavoriteStrip();
-                updateScanButtonText();
-            }
+        }
+
+        if (foundDevices.isEmpty()) {
+            // No registry matches — fall back to full bonded list (first-time pairing)
+            appendLog("Scanning for radios...");
+            btManager.startScan();
             return;
         }
 
-        // Probe all bonded devices; only reachable ones come back via onDeviceFound/onScanComplete
-        appendLog("Scanning for nearby radios...");
-        foundDevices.clear();
-        btManager.startScan();
+        showDevicePicker();
     }
 
     private int dip(Context c, int d) {
@@ -624,16 +624,42 @@ public class UVProDropDownReceiver extends DropDownReceiver
             return;
         }
 
-        // Multiple devices — show picker using user-assigned names from registry
-        String[] names = new String[foundDevices.size()];
-        for (int i = 0; i < foundDevices.size(); i++) {
+        // Multiple devices — show picker with live green/gray availability dots.
+        // Dialog appears instantly; dots update as background probes respond.
+        final int count = foundDevices.size();
+        final int[] dotColors = new int[count];
+        final String[] names = new String[count];
+        for (int i = 0; i < count; i++) {
             names[i] = resolveDeviceDisplayName(ctx, foundDevices.get(i));
+            dotColors[i] = 0xFF888888; // gray = unknown
         }
+
+        // Custom adapter that renders "● Name" with a colored dot
+        android.widget.ArrayAdapter<String> adapter =
+                new android.widget.ArrayAdapter<String>(ctx,
+                        android.R.layout.simple_list_item_1, names) {
+                    @Override
+                    public android.view.View getView(int pos, android.view.View cv,
+                            android.view.ViewGroup parent) {
+                        TextView tv = (TextView) super.getView(pos, cv, parent);
+                        android.text.SpannableStringBuilder sb =
+                                new android.text.SpannableStringBuilder(
+                                        "\u25CF  " + names[pos]);
+                        sb.setSpan(
+                                new android.text.style.ForegroundColorSpan(dotColors[pos]),
+                                0, 1,
+                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+                        tv.setText(sb);
+                        tv.setTextColor(0xFFFFFFFF);
+                        tv.setTextSize(16);
+                        return tv;
+                    }
+                };
 
         try {
             new AlertDialog.Builder(ctx)
                     .setTitle("Select Radio")
-                    .setItems(names, (dialog, which) -> {
+                    .setAdapter(adapter, (dialog, which) -> {
                         BluetoothDevice selected = foundDevices.get(which);
                         appendLog("Connecting to " + names[which] + "...");
                         BluetoothDeviceRegistry.setConnectTargetAddress(ctx, selected.getAddress());
@@ -641,11 +667,41 @@ public class UVProDropDownReceiver extends DropDownReceiver
                         updateScanButtonText();
                         btManager.connect(selected);
                     })
-                    .setNegativeButton("Cancel", null)
+                    .setNegativeButton("Cancel", (d, w) -> btManager.clearProbeSockets())
+                    .setOnCancelListener(d -> btManager.clearProbeSockets())
                     .show();
         } catch (Exception e) {
             Log.e(TAG, "Error showing device picker", e);
             appendLog("Error showing device picker");
+            return;
+        }
+
+        // Background probes — update dot color when each device responds
+        btManager.clearProbeSockets();
+        BluetoothAdapter btAdapter = BluetoothAdapter.getDefaultAdapter();
+        if (btAdapter != null && btAdapter.isDiscovering()) btAdapter.cancelDiscovery();
+        for (int i = 0; i < count; i++) {
+            final int idx = i;
+            final BluetoothDevice device = foundDevices.get(i);
+            new Thread(() -> {
+                android.bluetooth.BluetoothSocket socket = null;
+                try {
+                    socket = device.createRfcommSocketToServiceRecord(
+                            java.util.UUID.fromString("00001101-0000-1000-8000-00805F9B34FB"));
+                    socket.connect();
+                    btManager.addProbeSocket(device.getAddress(), socket);
+                    getMapView().post(() -> {
+                        dotColors[idx] = 0xFF00CC44; // green = available
+                        adapter.notifyDataSetChanged();
+                    });
+                } catch (Exception e) {
+                    if (socket != null) try { socket.close(); } catch (Exception ignored) {}
+                    getMapView().post(() -> {
+                        dotColors[idx] = 0xFF884444; // dim red = unavailable
+                        adapter.notifyDataSetChanged();
+                    });
+                }
+            }, "bt-probe-" + device.getAddress()).start();
         }
     }
 

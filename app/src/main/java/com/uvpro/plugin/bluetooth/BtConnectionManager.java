@@ -70,6 +70,10 @@ public class BtConnectionManager {
     private static final int MAX_RECONNECT_ATTEMPTS = 5;
 
     private BluetoothDevice lastDevice;
+    // Probe sockets that are already connected — reused by connect() to avoid double-connect
+    private final java.util.concurrent.ConcurrentHashMap<String, BluetoothSocket> openProbeSockets =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     private final CopyOnWriteArrayList<ConnectionListener> listeners =
             new CopyOnWriteArrayList<>();
 
@@ -95,7 +99,8 @@ public class BtConnectionManager {
     }
 
     /**
-     * Returns all bonded (paired) Bluetooth devices for the user to select from.
+     * Returns all bonded (paired) Bluetooth devices immediately.
+     * Background reachability probing is handled by showDevicePicker().
      */
     public void startScan() {
         if (btAdapter == null) {
@@ -124,6 +129,19 @@ public class BtConnectionManager {
             notifyDeviceFound(device);
         }
         notifyScanComplete();
+    }
+
+    /** Stores a probe socket that connect() can reuse to avoid a double-connect. */
+    public void addProbeSocket(String address, BluetoothSocket socket) {
+        openProbeSockets.put(address, socket);
+    }
+
+    /** Closes and discards all open probe sockets. */
+    public void clearProbeSockets() {
+        for (BluetoothSocket s : openProbeSockets.values()) {
+            try { s.close(); } catch (Exception ignored) {}
+        }
+        openProbeSockets.clear();
     }
 
 
@@ -205,9 +223,24 @@ public class BtConnectionManager {
                     btAdapter.cancelDiscovery();
                 }
 
+                // Strategy 0: Reuse probe socket if we have one already open from startScan()
+                BluetoothSocket socket = null;
+                BluetoothSocket probeSocket = openProbeSockets.remove(device.getAddress());
+                if (probeSocket != null && probeSocket.isConnected()) {
+                    Log.i(TAG, "Reusing probe socket for " + devName);
+                    socket = probeSocket;
+                    // Close any other leftover probe sockets we won't use
+                    for (BluetoothSocket s : openProbeSockets.values()) {
+                        try { s.close(); } catch (Exception ignored) {}
+                    }
+                    openProbeSockets.clear();
+                }
+
                 // Strategy 1: Standard SPP UUID
-                BluetoothSocket socket = tryConnect(device, "SPP UUID", () ->
-                        device.createRfcommSocketToServiceRecord(SPP_UUID));
+                if (socket == null) {
+                    socket = tryConnect(device, "SPP UUID", () ->
+                            device.createRfcommSocketToServiceRecord(SPP_UUID));
+                }
 
                 // Strategy 2: Reflection-based createRfcommSocket on channel 1
                 if (socket == null) {
