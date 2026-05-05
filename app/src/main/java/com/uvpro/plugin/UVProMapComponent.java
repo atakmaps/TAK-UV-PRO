@@ -19,6 +19,7 @@ import com.uvpro.plugin.cot.CotBridge;
 import com.uvpro.plugin.chat.ChatBridge;
 import com.uvpro.plugin.crypto.EncryptionManager;
 import com.uvpro.plugin.protocol.PacketRouter;
+import com.uvpro.plugin.ui.RadioStatusOverlay;
 import com.uvpro.plugin.ui.SettingsFragment;
 
 /**
@@ -134,6 +135,25 @@ try {
         // 5. BtConnectionManager (needs context + PacketRouter)
         btConnectionManager = new BtConnectionManager(context, packetRouter);
 
+        // Status overlay: defer install until after GLWidgetsMapComponent is ready
+        view.postDelayed(() -> RadioStatusOverlay.install(context), 2000);
+        btConnectionManager.addListener(new BtConnectionManager.ConnectionListener() {
+            @Override
+            public void onConnected(android.bluetooth.BluetoothDevice device) {
+                Log.d(TAG, "StatusOverlay: radio connected");
+                RadioStatusOverlay.setConnected(true);
+            }
+            @Override
+            public void onDisconnected(String reason) {
+                Log.d(TAG, "StatusOverlay: radio disconnected");
+                RadioStatusOverlay.setConnected(false);
+            }
+            @Override
+            public void onError(String error) {}
+            @Override
+            public void onDeviceFound(android.bluetooth.BluetoothDevice device) {}
+        });
+
         // Wire BT manager into bridges so they can transmit
         cotBridge.setBtManager(btConnectionManager);
         chatBridge.setBtManager(btConnectionManager);
@@ -217,6 +237,9 @@ try {
 
         // Unregister settings
         ToolsPreferenceFragment.unregister("uvproPreference");
+
+        // Remove status overlay from the map
+        RadioStatusOverlay.uninstall();
 
         // Shutdown in reverse order
         if (encryptionManager != null) {
