@@ -313,10 +313,11 @@ public class UVProDropDownReceiver extends DropDownReceiver
             }
             return;
         }
-        appendLog("Scanning paired devices...");
+
+        // Probe all bonded devices; only reachable ones come back via onDeviceFound/onScanComplete
+        appendLog("Scanning for nearby radios...");
         foundDevices.clear();
         btManager.startScan();
-        getMapView().postDelayed(this::showDevicePicker, 500);
     }
 
     private int dip(Context c, int d) {
@@ -444,6 +445,11 @@ public class UVProDropDownReceiver extends DropDownReceiver
         getMapView().post(() -> {
             appendLog("Found: " + name);
         });
+    }
+
+    @Override
+    public void onScanComplete() {
+        getMapView().post(this::showDevicePicker);
     }
 
     // --- Contact Listener callbacks ---
@@ -611,6 +617,9 @@ public class UVProDropDownReceiver extends DropDownReceiver
             BluetoothDevice device = foundDevices.get(0);
             String name = resolveDeviceDisplayName(ctx, device);
             appendLog("Connecting to " + name + "...");
+            BluetoothDeviceRegistry.setConnectTargetAddress(ctx, device.getAddress());
+            refreshFavoriteStrip();
+            updateScanButtonText();
             btManager.connect(device);
             return;
         }
@@ -627,6 +636,9 @@ public class UVProDropDownReceiver extends DropDownReceiver
                     .setItems(names, (dialog, which) -> {
                         BluetoothDevice selected = foundDevices.get(which);
                         appendLog("Connecting to " + names[which] + "...");
+                        BluetoothDeviceRegistry.setConnectTargetAddress(ctx, selected.getAddress());
+                        refreshFavoriteStrip();
+                        updateScanButtonText();
                         btManager.connect(selected);
                     })
                     .setNegativeButton("Cancel", null)

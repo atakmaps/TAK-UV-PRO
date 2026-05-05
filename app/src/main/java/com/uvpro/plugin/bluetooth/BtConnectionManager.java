@@ -78,6 +78,7 @@ public class BtConnectionManager {
         void onDisconnected(String reason);
         void onError(String error);
         void onDeviceFound(BluetoothDevice device);
+        default void onScanComplete() {}
     }
 
     public BtConnectionManager(Context context, PacketRouter packetRouter) {
@@ -94,22 +95,17 @@ public class BtConnectionManager {
     }
 
     /**
-     * Scan for paired Bluetooth devices.
-     * Shows ALL paired devices so the user can select their radio,
-     * since BTECH radios may advertise under various names.
+     * Returns all bonded (paired) Bluetooth devices for the user to select from.
      */
     public void startScan() {
         if (btAdapter == null) {
             notifyError("Bluetooth not available on this device");
             return;
         }
-
         if (!btAdapter.isEnabled()) {
             notifyError("Bluetooth is disabled. Please enable it.");
             return;
         }
-
-        // Android 12+ requires runtime BLUETOOTH_CONNECT permission
         if (!checkBtPermissions()) {
             notifyError("Bluetooth permission denied. Grant in Settings > Apps.");
             return;
@@ -121,19 +117,15 @@ public class BtConnectionManager {
             return;
         }
 
-        // Report ALL paired devices — BTECH radios can have various names
-        // depending on firmware version and model (UV-PRO, UV-PRO50, etc.)
-        int count = 0;
         for (BluetoothDevice device : pairedDevices) {
             String name = device.getName();
             if (name == null) name = device.getAddress();
-            Log.i(TAG, "Paired device: " + name + " [" + device.getAddress() + "]"
-                    + (isBtechDevice(name) ? " (BTECH)" : ""));
+            Log.i(TAG, "Paired device: " + name + " [" + device.getAddress() + "]");
             notifyDeviceFound(device);
-            count++;
         }
-        Log.i(TAG, "Found " + count + " paired Bluetooth devices");
+        notifyScanComplete();
     }
+
 
     /**
      * Check (and request if possible) Bluetooth runtime permissions for Android 12+.
@@ -479,5 +471,9 @@ public class BtConnectionManager {
 
     private void notifyDeviceFound(BluetoothDevice device) {
         for (ConnectionListener l : listeners) l.onDeviceFound(device);
+    }
+
+    private void notifyScanComplete() {
+        for (ConnectionListener l : listeners) l.onScanComplete();
     }
 }
