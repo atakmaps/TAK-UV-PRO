@@ -3,7 +3,7 @@
 A free, open-source ATAK plugin that connects UV-PRO radios to the Android Team Awareness Kit (ATAK) over Bluetooth. Team members with radios can share positions, chat, and situational awareness data entirely off-grid — no cell service or internet required.
 
 - Package: `com.uvpro.plugin`
-- Current version: `2.0.12`
+- Current version: `2.0.13`
 - Target ATAK: `5.5.1` and `5.6.0` (CIV; build with `-Patak.version=5.6.0` for 5.6 installs)
 
 ## Features
@@ -188,7 +188,7 @@ A free, open-source ATAK plugin that connects UV-PRO radios to the Android Team 
 
 - **MeshCore Node Settings panel:** Added a new `Node Settings` action in the MeshCore section with live polling and apply controls for node name, frequency, bandwidth, spreading factor, coding rate, and transmit power (dBm). `Apply` and `Refresh` now keep the dialog open, and the panel always opens scrolled to the top.
 - **Advert persistence decoupled from display toggles:** Node and repeater adverts are now stored even when `Show Nodes` / `Show Repeaters` is OFF. The toggles now control rendering only.
-- **Node cache policy:** Mesh node cache now keeps a rolling cap of the most recent 100 nodes, evicts oldest when over cap, and purges entries older than 30 days.
+- **Node cache policy:** Mesh node cache keeps a rolling cap of the most recent **75** nodes (favorites exempt), evicts oldest non-favorites when over cap, and purges non-favorites older than 30 days.
 - **Channels picker cleanup:** The internal `ATAK_DATA` channel is hidden from the user-facing MeshCore `Channels` list.
 - **Inbound DM trust gate:** Native MeshCore inbound DMs are now accepted only from existing mesh contacts (favorited/known in ATAK); unknown senders are dropped instead of auto-creating a new contact thread.
 
