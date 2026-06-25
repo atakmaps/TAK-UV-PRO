@@ -15,6 +15,8 @@ import com.atakmap.comms.NetConnectString;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.uvpro.plugin.chat.ChatBridge;
 import com.uvpro.plugin.bluetooth.MeshBtConnectionManager;
+import com.uvpro.plugin.bluetooth.MeshDeviceContactCache;
+import com.uvpro.plugin.protocol.UVProMeshServices;
 import com.uvpro.plugin.contacts.MeshFavoriteConnector;
 import com.uvpro.plugin.contacts.MeshRequestPositionConnector;
 import com.uvpro.plugin.contacts.MeshSendMessageConnector;
@@ -281,7 +283,9 @@ public class UVProContactHandler extends
                     com.atakmap.android.maps.MapView mv =
                             com.atakmap.android.maps.MapView.getMapView();
                     if (mv != null) {
-                        markMeshMapCacheFavorite(mv.getContext(), pubKeyPrefix, true);
+                        Context ctx = mv.getContext();
+                        markMeshMapCacheFavorite(ctx, pubKeyPrefix, true);
+                        syncFavoriteToDeviceContact(ctx, uid, pubKeyPrefix, currentName);
                     }
                 } catch (Exception ignored) {
                 }
@@ -669,6 +673,43 @@ public class UVProContactHandler extends
             return null;
         }
         return suffix.substring(0, 12);
+    }
+
+    private static int contactTypeFromMeshUid(@Nullable String uid) {
+        if (uid != null && uid.trim().toUpperCase(Locale.US).startsWith(MESH_RPTR_UID_PREFIX)) {
+            return 0x02;
+        }
+        return 0x01;
+    }
+
+    private static void syncFavoriteToDeviceContact(Context context, String contactUid,
+                                                    String pubKeyPrefix, String displayName) {
+        if (context == null || pubKeyPrefix == null) {
+            return;
+        }
+        MeshBtConnectionManager bt = UVProMeshServices.getMeshBtManager();
+        String deviceAddr = bt != null && bt.isConnected()
+                ? bt.getConnectedDeviceAddress() : null;
+        MeshBtConnectionManager.MeshDeviceContact cached =
+                MeshDeviceContactCache.findByPubKeyPrefix(context, deviceAddr, pubKeyPrefix);
+        String fullPubKey = cached != null ? cached.pubKeyHex
+                : MeshDeviceContactCache.resolvePubKeyHexFromNodeCaches(context, pubKeyPrefix);
+        int type = cached != null ? cached.type : contactTypeFromMeshUid(contactUid);
+        String name = cached != null && cached.name != null && !cached.name.isEmpty()
+                ? cached.name : displayName;
+        if (bt != null && bt.isConnected()) {
+            MeshBtConnectionManager.MeshDeviceContact toFavorite = cached;
+            if (toFavorite == null && fullPubKey != null && fullPubKey.length() >= 64) {
+                toFavorite = new MeshBtConnectionManager.MeshDeviceContact(
+                        fullPubKey, type, 0, 0, name != null ? name : pubKeyPrefix,
+                        0, 0.0, 0.0, (int) (System.currentTimeMillis() / 1000L));
+            }
+            if (toFavorite != null) {
+                bt.addOrUpdateDeviceContactFavorite(toFavorite);
+            }
+        }
+        MeshDeviceContactCache.syncFavoriteFromUid(context, deviceAddr, pubKeyPrefix,
+                name, type, fullPubKey);
     }
 
     public static boolean favoriteDeviceContact(MeshBtConnectionManager meshBt,

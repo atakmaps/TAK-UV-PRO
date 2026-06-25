@@ -114,7 +114,7 @@ public final class MeshDeviceContactCache {
         List<MeshBtConnectionManager.MeshDeviceContact> updated = new ArrayList<>(contacts.size());
         boolean changed = false;
         for (MeshBtConnectionManager.MeshDeviceContact c : contacts) {
-            if (c.pubKeyHex != null && c.pubKeyHex.toUpperCase(Locale.US).equals(key)) {
+            if (c.pubKeyHex != null && pubKeysMatch(key, c.pubKeyHex.toUpperCase(Locale.US))) {
                 int flags = favorite
                         ? (c.flags | MeshBtConnectionManager.CONTACT_FLAG_FAVORITE)
                         : (c.flags & ~MeshBtConnectionManager.CONTACT_FLAG_FAVORITE);
@@ -129,6 +129,99 @@ public final class MeshDeviceContactCache {
         if (changed) {
             save(context, addr, updated);
         }
+    }
+
+    @Nullable
+    public static MeshBtConnectionManager.MeshDeviceContact findByPubKeyPrefix(
+            Context context, @Nullable String deviceAddress, @Nullable String prefix12) {
+        if (prefix12 == null || prefix12.length() < 12) {
+            return null;
+        }
+        String prefix = prefix12.trim().toUpperCase(Locale.US).substring(0, 12);
+        for (MeshBtConnectionManager.MeshDeviceContact contact : load(context, deviceAddress)) {
+            if (contact.pubKeyHex != null
+                    && contact.pubKeyHex.toUpperCase(Locale.US).startsWith(prefix)) {
+                return contact;
+            }
+        }
+        return null;
+    }
+
+    @Nullable
+    public static String resolvePubKeyHexFromNodeCaches(Context context,
+                                                        @Nullable String prefix12) {
+        if (prefix12 == null || prefix12.length() < 12) {
+            return null;
+        }
+        String prefix = prefix12.trim().toUpperCase(Locale.US).substring(0, 12);
+        String[] prefKeys = {
+                "uvpro_mesh_node_cache_v1",
+                "uvpro_mesh_repeater_cache_v1"
+        };
+        SharedPreferences prefs = prefs(context);
+        for (String prefKey : prefKeys) {
+            String raw = prefs.getString(prefKey, "[]");
+            if (raw == null || raw.isEmpty()) {
+                continue;
+            }
+            try {
+                JSONArray arr = new JSONArray(raw);
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject o = arr.optJSONObject(i);
+                    if (o == null) {
+                        continue;
+                    }
+                    String pubKey = o.optString("pubKeyHex", "").trim().toUpperCase(Locale.US);
+                    if (pubKey.startsWith(prefix)) {
+                        return pubKey;
+                    }
+                }
+            } catch (JSONException ignored) {
+            }
+        }
+        return null;
+    }
+
+    public static void syncFavoriteFromUid(Context context, @Nullable String deviceAddress,
+                                             @Nullable String pubKeyPrefix12,
+                                             @Nullable String displayName, int contactType,
+                                             @Nullable String fullPubKeyHex) {
+        String addr = normalizeDeviceAddress(deviceAddress);
+        if (addr == null || pubKeyPrefix12 == null || pubKeyPrefix12.length() < 12) {
+            return;
+        }
+        String prefix = pubKeyPrefix12.trim().toUpperCase(Locale.US).substring(0, 12);
+        MeshBtConnectionManager.MeshDeviceContact existing =
+                findByPubKeyPrefix(context, addr, prefix);
+        if (existing != null) {
+            updateFavoriteFlag(context, addr, existing.pubKeyHex, true);
+            return;
+        }
+        String pubKey = fullPubKeyHex;
+        if (pubKey == null || pubKey.length() < 64) {
+            pubKey = resolvePubKeyHexFromNodeCaches(context, prefix);
+        }
+        if (pubKey == null || pubKey.length() < 64) {
+            return;
+        }
+        String name = displayName != null && !displayName.trim().isEmpty()
+                ? displayName.trim() : prefix;
+        List<MeshBtConnectionManager.MeshDeviceContact> contacts = load(context, addr);
+        contacts.add(new MeshBtConnectionManager.MeshDeviceContact(
+                pubKey, contactType, MeshBtConnectionManager.CONTACT_FLAG_FAVORITE,
+                0, name, 0, 0.0, 0.0,
+                (int) (System.currentTimeMillis() / 1000L)));
+        save(context, addr, contacts);
+    }
+
+    private static boolean pubKeysMatch(@NonNull String a, @NonNull String b) {
+        if (a.equals(b)) {
+            return true;
+        }
+        if (a.length() >= 12 && b.length() >= 12) {
+            return a.regionMatches(0, b, 0, 12);
+        }
+        return false;
     }
 
     @NonNull

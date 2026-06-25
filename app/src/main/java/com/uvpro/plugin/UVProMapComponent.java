@@ -33,6 +33,7 @@ import com.uvpro.plugin.crypto.EncryptionManager;
 import com.uvpro.plugin.mesh.MeshNodeCachePolicy;
 import com.uvpro.plugin.protocol.NetSlotConfig;
 import com.uvpro.plugin.protocol.PacketRouter;
+import com.uvpro.plugin.protocol.UVProMeshServices;
 import com.uvpro.plugin.protocol.UVProRadioServices;
 import com.uvpro.plugin.radio.UVProRadioControlManager;
 import com.uvpro.plugin.terminal.PacketTerminalDropDownReceiver;
@@ -492,6 +493,7 @@ try {
 
         NetSlotConfig.ensureDefaults(view.getContext());
         UVProRadioServices.install(btConnectionManager, encryptionManager);
+        UVProMeshServices.install(meshBtConnectionManager);
         com.uvpro.plugin.protocol.PositionRequester.install(
                 btConnectionManager, meshBtConnectionManager, encryptionManager, cotBridge);
 
@@ -754,6 +756,7 @@ try {
             encryptionManager = null;
         }
         UVProRadioServices.clear();
+        UVProMeshServices.clear();
         com.uvpro.plugin.protocol.PositionRequester.clear();
         cancelMeshBootAutoConnectSchedules();
         if (btConnectionManager != null) {
