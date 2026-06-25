@@ -76,6 +76,8 @@ public class MeshBtConnectionManager extends BtConnectionManager {
     private static final byte CMD_GET_NEXT_MSG = 0x0A;
     private static final byte CMD_DEVICE_QUERY = 0x16;
     private static final byte CMD_DEVICE_QUERY_ARG = 0x03;
+    private static final byte CMD_GET_CONTACTS = 0x04;
+    private static final byte CMD_ADD_UPDATE_CONTACT = 0x09;
     private static final byte CMD_GET_CONTACT_BY_KEY = 0x1E;
     private static final byte CMD_GET_CHANNEL = 0x1F;
     private static final byte CMD_SET_CHANNEL = 0x20;
@@ -104,8 +106,15 @@ public class MeshBtConnectionManager extends BtConnectionManager {
     private static final byte PUSH_CODE_LOG_RX_DATA = (byte) 0x88;
     private static final byte PUSH_CODE_ADVERT = (byte) 0x80;
     private static final byte PUSH_CODE_NEW_ADVERT = (byte) 0x8A;
+    private static final byte RESP_CODE_CONTACTS_START = 0x02;
     private static final byte RESP_CODE_CONTACT = 0x03;
+    private static final byte RESP_CODE_END_OF_CONTACTS = 0x04;
     private static final int ADV_TYPE_REPEATER = 0x02;
+    private static final int CONTACT_PUB_KEY_BYTES = 32;
+    private static final int CONTACT_PATH_BYTES = 64;
+    private static final int CONTACT_NAME_BYTES = 32;
+    private static final int CONTACT_FLAG_FAVORITE = 0x01;
+    private static final long DEVICE_CONTACTS_FETCH_TIMEOUT_MS = 30_000L;
 
     private static final int MAX_MESH_MESSAGE_LEN = 130;
     private static final int MAX_RAW_AX25_CHUNK = 57;
@@ -207,6 +216,13 @@ public class MeshBtConnectionManager extends BtConnectionManager {
             new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<MeshChannelListener> meshChannelListeners =
             new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<MeshNativeDmListener> meshNativeDmListeners =
+            new CopyOnWriteArrayList<>();
+    private volatile DeviceContactsListener pendingDeviceContactsListener;
+    private final java.util.ArrayList<MeshDeviceContact> pendingDeviceContactsList =
+            new java.util.ArrayList<>();
+    private volatile boolean deviceContactsFetchActive = false;
+    private final Runnable deviceContactsFetchTimeoutRunnable = this::onDeviceContactsFetchTimeout;
     private final Map<String, Long> repeaterToastDedupByPubKeyTs = new ConcurrentHashMap<>();
     private final Map<String, Long> nodeToastDedupByPubKeyTs = new ConcurrentHashMap<>();
     private final Map<String, Long> contactQueryThrottleMsByPubKey = new ConcurrentHashMap<>();
@@ -420,6 +436,45 @@ public class MeshBtConnectionManager extends BtConnectionManager {
     public interface MeshChannelListener {
         void onChannelInfo(MeshChannelInfo info);
         void onChannelMessage(MeshChannelMessage message);
+    }
+
+    public interface DeviceContactsListener {
+        void onDeviceContactsReady(java.util.List<MeshDeviceContact> contacts);
+        void onDeviceContactsFailed(String reason);
+    }
+
+    public interface MeshNativeDmListener {
+        void onNativeDirectMessage(String senderPubKeyPrefixHex, String text);
+    }
+
+    public static final class MeshDeviceContact {
+        public final String pubKeyHex;
+        public final int type;
+        public final int flags;
+        public final int outPathLen;
+        public final String name;
+        public final int lastAdvertTimestamp;
+        public final double gpsLat;
+        public final double gpsLon;
+        public final int lastMod;
+
+        public MeshDeviceContact(String pubKeyHex, int type, int flags, int outPathLen,
+                                 String name, int lastAdvertTimestamp,
+                                 double gpsLat, double gpsLon, int lastMod) {
+            this.pubKeyHex = pubKeyHex;
+            this.type = type;
+            this.flags = flags;
+            this.outPathLen = outPathLen;
+            this.name = name;
+            this.lastAdvertTimestamp = lastAdvertTimestamp;
+            this.gpsLat = gpsLat;
+            this.gpsLon = gpsLon;
+            this.lastMod = lastMod;
+        }
+
+        public boolean isFavorite() {
+            return (flags & CONTACT_FLAG_FAVORITE) != 0;
+        }
     }
 
     public static final class MeshChannelInfo {
@@ -1442,6 +1497,9 @@ public class MeshBtConnectionManager extends BtConnectionManager {
         finishMeshBootAutoConnect(false);
         connected.set(false);
         connecting.set(false);
+        if (deviceContactsFetchActive) {
+            finishDeviceContactsFetch(false, "Disconnected");
+        }
         ioHandler.removeCallbacks(periodicMessagePoll);
         clearQueues();
         ioHandler.post(this::closeGattInternal);
@@ -1544,6 +1602,54 @@ public class MeshBtConnectionManager extends BtConnectionManager {
 
     public void removeMeshChannelListener(MeshChannelListener listener) {
         meshChannelListeners.remove(listener);
+    }
+
+    public void addMeshNativeDmListener(MeshNativeDmListener listener) {
+        if (listener != null) {
+            meshNativeDmListeners.addIfAbsent(listener);
+        }
+    }
+
+    public void removeMeshNativeDmListener(MeshNativeDmListener listener) {
+        meshNativeDmListeners.remove(listener);
+    }
+
+    public void requestDeviceContacts(DeviceContactsListener listener) {
+        if (!connected.get()) {
+            if (listener != null) {
+                listener.onDeviceContactsFailed("Not connected");
+            }
+            return;
+        }
+        if (deviceContactsFetchActive) {
+            if (listener != null) {
+                listener.onDeviceContactsFailed("Contact sync already in progress");
+            }
+            return;
+        }
+        pendingDeviceContactsListener = listener;
+        pendingDeviceContactsList.clear();
+        deviceContactsFetchActive = true;
+        ioHandler.removeCallbacks(deviceContactsFetchTimeoutRunnable);
+        ioHandler.postDelayed(deviceContactsFetchTimeoutRunnable, DEVICE_CONTACTS_FETCH_TIMEOUT_MS);
+        enqueueCommand(new byte[]{CMD_GET_CONTACTS});
+        Log.d(TAG, "CMD_GET_CONTACTS queued");
+    }
+
+    /**
+     * Mark a device contact as favorite so firmware will not evict it when the table is full.
+     */
+    public boolean addOrUpdateDeviceContactFavorite(MeshDeviceContact contact) {
+        if (!connected.get() || contact == null) {
+            return false;
+        }
+        byte[] cmd = buildAddUpdateContactCommand(contact, contact.flags | CONTACT_FLAG_FAVORITE);
+        if (cmd == null) {
+            return false;
+        }
+        enqueueCommand(cmd);
+        Log.d(TAG, "CMD_ADD_UPDATE_CONTACT favorite queued name=" + contact.name);
+        return true;
     }
 
     public Map<Integer, String> getKnownChannelNamesSnapshot() {
@@ -2224,6 +2330,23 @@ public class MeshBtConnectionManager extends BtConnectionManager {
         byte t = pkt[0];
         Log.d(TAG, "RX companion pkt type=0x" + Integer.toHexString(t & 0xFF)
                 + " len=" + pkt.length);
+        if (deviceContactsFetchActive) {
+            if (t == RESP_CODE_CONTACTS_START) {
+                handleDeviceContactsStart(pkt);
+                return;
+            }
+            if (t == RESP_CODE_CONTACT) {
+                MeshDeviceContact parsed = parseDeviceContactPacket(pkt);
+                if (parsed != null) {
+                    pendingDeviceContactsList.add(parsed);
+                }
+                return;
+            }
+            if (t == RESP_CODE_END_OF_CONTACTS) {
+                finishDeviceContactsFetch(true, null);
+                return;
+            }
+        }
         if (t == PUSH_MESSAGES_WAITING) {
             enqueueCommand(buildGetNextMessageCommand());
             return;
@@ -2327,6 +2450,7 @@ public class MeshBtConnectionManager extends BtConnectionManager {
                 String senderPrefixHex = extractContactSenderPubKeyPrefix(pkt, t == RESP_CONTACT_MSG_V3);
                 if (senderPrefixHex != null && !senderPrefixHex.isEmpty()
                         && !message.trim().isEmpty()) {
+                    notifyNativeDirectMessage(senderPrefixHex, message.trim());
                     packetRouter.routeNativeMeshDm(senderPrefixHex, message.trim());
                 }
             }
@@ -2931,6 +3055,156 @@ public class MeshBtConnectionManager extends BtConnectionManager {
         if (txtType == 2) off += 4;
         if (pkt.length < off) return null;
         return new String(pkt, off, pkt.length - off, StandardCharsets.UTF_8);
+    }
+
+    private void notifyNativeDirectMessage(String senderPubKeyPrefixHex, String text) {
+        for (MeshNativeDmListener l : meshNativeDmListeners) {
+            try {
+                l.onNativeDirectMessage(senderPubKeyPrefixHex, text);
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private void handleDeviceContactsStart(byte[] pkt) {
+        int total = 0;
+        if (pkt != null && pkt.length >= 5) {
+            total = (pkt[1] & 0xFF) | ((pkt[2] & 0xFF) << 8)
+                    | ((pkt[3] & 0xFF) << 16) | ((pkt[4] & 0xFF) << 24);
+        }
+        pendingDeviceContactsList.clear();
+        Log.d(TAG, "Device contacts sync started total=" + total);
+    }
+
+    private MeshDeviceContact parseDeviceContactPacket(byte[] pkt) {
+        int minLen = 1 + CONTACT_PUB_KEY_BYTES + 3 + CONTACT_PATH_BYTES + CONTACT_NAME_BYTES;
+        if (pkt == null || pkt.length < minLen) {
+            return null;
+        }
+        try {
+            int i = 1;
+            String pubKeyHex = bytesToHex(pkt, i, CONTACT_PUB_KEY_BYTES);
+            i += CONTACT_PUB_KEY_BYTES;
+            int type = pkt[i++] & 0xFF;
+            int flags = pkt[i++] & 0xFF;
+            int outPathLen = pkt[i++] & 0xFF;
+            i += CONTACT_PATH_BYTES;
+            String nameRaw = new String(pkt, i, CONTACT_NAME_BYTES, StandardCharsets.UTF_8);
+            int nul = nameRaw.indexOf('\0');
+            String name = (nul >= 0 ? nameRaw.substring(0, nul) : nameRaw).trim();
+            i += CONTACT_NAME_BYTES;
+            int lastAdvertTs = 0;
+            double gpsLat = 0.0;
+            double gpsLon = 0.0;
+            int lastMod = 0;
+            if (pkt.length >= i + 4) {
+                lastAdvertTs = (pkt[i] & 0xFF) | ((pkt[i + 1] & 0xFF) << 8)
+                        | ((pkt[i + 2] & 0xFF) << 16) | ((pkt[i + 3] & 0xFF) << 24);
+                i += 4;
+            }
+            if (pkt.length >= i + 8) {
+                int latE6 = (pkt[i] & 0xFF) | ((pkt[i + 1] & 0xFF) << 8)
+                        | ((pkt[i + 2] & 0xFF) << 16) | ((pkt[i + 3] & 0xFF) << 24);
+                int lonE6 = (pkt[i + 4] & 0xFF) | ((pkt[i + 5] & 0xFF) << 8)
+                        | ((pkt[i + 6] & 0xFF) << 16) | ((pkt[i + 7] & 0xFF) << 24);
+                gpsLat = latE6 / 1_000_000.0;
+                gpsLon = lonE6 / 1_000_000.0;
+                i += 8;
+            }
+            if (pkt.length >= i + 4) {
+                lastMod = (pkt[i] & 0xFF) | ((pkt[i + 1] & 0xFF) << 8)
+                        | ((pkt[i + 2] & 0xFF) << 16) | ((pkt[i + 3] & 0xFF) << 24);
+            }
+            if (name.isEmpty()) {
+                name = pubKeyHex.length() >= 12 ? pubKeyHex.substring(0, 12) : pubKeyHex;
+            }
+            return new MeshDeviceContact(pubKeyHex, type, flags, outPathLen, name,
+                    lastAdvertTs, gpsLat, gpsLon, lastMod);
+        } catch (Exception e) {
+            Log.w(TAG, "parseDeviceContactPacket failed", e);
+            return null;
+        }
+    }
+
+    private byte[] buildAddUpdateContactCommand(MeshDeviceContact contact, int flags) {
+        if (contact == null || contact.pubKeyHex == null) {
+            return null;
+        }
+        byte[] pubKey = pubKeyPrefixBytes(contact.pubKeyHex, CONTACT_PUB_KEY_BYTES);
+        if (pubKey == null) {
+            return null;
+        }
+        int frameLen = 1 + CONTACT_PUB_KEY_BYTES + 3 + CONTACT_PATH_BYTES + CONTACT_NAME_BYTES + 16;
+        byte[] out = new byte[frameLen];
+        int i = 0;
+        out[i++] = CMD_ADD_UPDATE_CONTACT;
+        System.arraycopy(pubKey, 0, out, i, CONTACT_PUB_KEY_BYTES);
+        i += CONTACT_PUB_KEY_BYTES;
+        out[i++] = (byte) (contact.type & 0xFF);
+        out[i++] = (byte) (flags & 0xFF);
+        out[i++] = (byte) (contact.outPathLen & 0xFF);
+        i += CONTACT_PATH_BYTES;
+        byte[] nameBytes = (contact.name != null ? contact.name : "")
+                .getBytes(StandardCharsets.UTF_8);
+        int nameLen = Math.min(CONTACT_NAME_BYTES, nameBytes.length);
+        System.arraycopy(nameBytes, 0, out, i, nameLen);
+        i += CONTACT_NAME_BYTES;
+        int lastAdvert = contact.lastAdvertTimestamp;
+        out[i++] = (byte) (lastAdvert & 0xFF);
+        out[i++] = (byte) ((lastAdvert >> 8) & 0xFF);
+        out[i++] = (byte) ((lastAdvert >> 16) & 0xFF);
+        out[i++] = (byte) ((lastAdvert >> 24) & 0xFF);
+        int latE6 = (int) Math.round(contact.gpsLat * 1_000_000.0);
+        int lonE6 = (int) Math.round(contact.gpsLon * 1_000_000.0);
+        out[i++] = (byte) (latE6 & 0xFF);
+        out[i++] = (byte) ((latE6 >> 8) & 0xFF);
+        out[i++] = (byte) ((latE6 >> 16) & 0xFF);
+        out[i++] = (byte) ((latE6 >> 24) & 0xFF);
+        out[i++] = (byte) (lonE6 & 0xFF);
+        out[i++] = (byte) ((lonE6 >> 8) & 0xFF);
+        out[i++] = (byte) ((lonE6 >> 16) & 0xFF);
+        out[i++] = (byte) ((lonE6 >> 24) & 0xFF);
+        int lastMod = contact.lastMod > 0
+                ? contact.lastMod
+                : (int) (System.currentTimeMillis() / 1000L);
+        out[i++] = (byte) (lastMod & 0xFF);
+        out[i++] = (byte) ((lastMod >> 8) & 0xFF);
+        out[i++] = (byte) ((lastMod >> 16) & 0xFF);
+        out[i] = (byte) ((lastMod >> 24) & 0xFF);
+        return out;
+    }
+
+    private void onDeviceContactsFetchTimeout() {
+        if (!deviceContactsFetchActive) {
+            return;
+        }
+        Log.w(TAG, "Device contacts fetch timed out with " + pendingDeviceContactsList.size()
+                + " partial results");
+        finishDeviceContactsFetch(false, "Timed out waiting for device contacts");
+    }
+
+    private void finishDeviceContactsFetch(boolean success, String failureReason) {
+        if (!deviceContactsFetchActive) {
+            return;
+        }
+        deviceContactsFetchActive = false;
+        ioHandler.removeCallbacks(deviceContactsFetchTimeoutRunnable);
+        final DeviceContactsListener listener = pendingDeviceContactsListener;
+        pendingDeviceContactsListener = null;
+        final java.util.ArrayList<MeshDeviceContact> results =
+                new java.util.ArrayList<>(pendingDeviceContactsList);
+        pendingDeviceContactsList.clear();
+        mainHandler.post(() -> {
+            if (listener == null) {
+                return;
+            }
+            if (success) {
+                listener.onDeviceContactsReady(results);
+            } else {
+                listener.onDeviceContactsFailed(
+                        failureReason != null ? failureReason : "Failed to load contacts");
+            }
+        });
     }
 
     private void handleMeshMessage(String msg) {

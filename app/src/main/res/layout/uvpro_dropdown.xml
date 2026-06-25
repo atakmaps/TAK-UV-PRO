@@ -1284,6 +1284,15 @@
                 android:text="+ Add Channel"
                 android:background="@drawable/bg_uvpro_mesh_button" />
 
+            <Button
+                android:id="@+id/btn_mesh_contacts"
+                style="@style/UvproPillButton.Beacon"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Contacts"
+                android:background="@drawable/bg_uvpro_mesh_button" />
+
             <!-- Channel buttons strip — one button per subscribed channel, auto-sized -->
             <LinearLayout
                 android:id="@+id/strip_mesh_channels"
@@ -1346,6 +1355,17 @@
                     android:text="Send"
                     android:background="@drawable/bg_uvpro_mesh_button" />
             </LinearLayout>
+
+            <Button
+                android:id="@+id/btn_expand_mesh_channel_chat"
+                style="@style/UvproPillButton.Beacon"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Expand Chat Window"
+                android:enabled="false"
+                android:visibility="gone"
+                android:background="@drawable/bg_uvpro_mesh_button" />
 
             <Button
                 android:id="@+id/btn_clear_mesh_contacts"

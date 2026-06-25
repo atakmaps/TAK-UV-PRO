@@ -14,6 +14,7 @@ import com.atakmap.android.preference.AtakPreferences;
 import com.atakmap.comms.NetConnectString;
 import com.atakmap.coremap.filesystem.FileSystemUtils;
 import com.uvpro.plugin.chat.ChatBridge;
+import com.uvpro.plugin.bluetooth.MeshBtConnectionManager;
 import com.uvpro.plugin.contacts.MeshFavoriteConnector;
 import com.uvpro.plugin.contacts.MeshRequestPositionConnector;
 import com.uvpro.plugin.contacts.MeshSendMessageConnector;
@@ -484,6 +485,135 @@ public class UVProContactHandler extends
 
     public static String formatMeshFavoriteName(String currentName, String uid) {
         return formatMeshFavoriteName(currentName, uid, null);
+    }
+
+    /**
+     * When a native MeshCore app sends a pubkey DM, ensure a GeoChat-capable contact exists
+     * even if the operator has not favorited the node yet (map marker may exist from advert).
+     */
+    public static String ensureMeshInboundChatContact(String senderPubKeyPrefixHex) {
+        if (senderPubKeyPrefixHex == null || senderPubKeyPrefixHex.trim().isEmpty()) {
+            return "";
+        }
+        String prefix = senderPubKeyPrefixHex.trim().toUpperCase(Locale.US);
+        try {
+            com.atakmap.android.maps.MapView mv = com.atakmap.android.maps.MapView.getMapView();
+            MapItem mapItem = findMapItemByPubKeyPrefix(mv, prefix);
+            String uid = mapItem != null ? mapItem.getUID() : (MESH_NODE_UID_PREFIX + prefix);
+            if (uid == null || uid.trim().isEmpty()) {
+                return "";
+            }
+            uid = uid.trim();
+            Contacts contacts = Contacts.getInstance();
+            Contact existing = contacts.getContactByUuid(uid);
+            if (existing instanceof IndividualContact) {
+                IndividualContact ic = (IndividualContact) existing;
+                applyMeshInboundConnectors(ic);
+                return uid;
+            }
+            String nameHint = (mapItem == null && prefix.length() >= 8)
+                    ? prefix.substring(0, 8) : null;
+            String displayName = formatMeshFavoriteName(nameHint, uid, mapItem);
+            IndividualContact created = new IndividualContact(
+                    displayName,
+                    uid,
+                    mapItem,
+                    buildNativeConnectorSeed(displayName));
+            applyMeshInboundConnectors(created);
+            contacts.addContact(created);
+            contacts.updateTotalUnreadCount();
+            Log.i("UVPro.Handler", "Created inbound mesh chat contact " + displayName + " uid=" + uid);
+            return uid;
+        } catch (Exception e) {
+            Log.w("UVPro.Handler", "ensureMeshInboundChatContact failed prefix=" + prefix, e);
+            return "";
+        }
+    }
+
+    private static MapItem findMapItemByPubKeyPrefix(com.atakmap.android.maps.MapView mv,
+                                                     String prefixUpper) {
+        if (mv == null || mv.getRootGroup() == null || prefixUpper == null || prefixUpper.isEmpty()) {
+            return null;
+        }
+        try {
+            java.util.List<MapItem> items = mv.getRootGroup().deepFindItems("type", "a-f-G-U-C");
+            if (items == null) {
+                return null;
+            }
+            for (MapItem item : items) {
+                if (item == null) {
+                    continue;
+                }
+                String uid = item.getUID();
+                if (uid == null) {
+                    continue;
+                }
+                String u = uid.toUpperCase(Locale.US);
+                if ((u.startsWith(MESH_NODE_UID_PREFIX) || u.startsWith(MESH_RPTR_UID_PREFIX))
+                        && u.contains(prefixUpper)) {
+                    return item;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private static void applyMeshInboundConnectors(IndividualContact contact) {
+        if (contact == null) {
+            return;
+        }
+        try {
+            contact.removeConnector(PositionOnlyConnector.CONNECTOR_TYPE);
+        } catch (Exception ignored) {
+        }
+        try {
+            contact.removeConnector(PluginConnector.CONNECTOR_TYPE);
+        } catch (Exception ignored) {
+        }
+        try {
+            if (contact.getConnector(MeshFavoriteConnector.CONNECTOR_TYPE) == null) {
+                contact.addConnector(new MeshFavoriteConnector());
+            }
+            if (contact.getConnector(MeshSendMessageConnector.CONNECTOR_TYPE) == null) {
+                contact.addConnector(new MeshSendMessageConnector());
+            }
+            if (contact.getConnector(MeshRequestPositionConnector.CONNECTOR_TYPE) == null) {
+                contact.addConnector(new MeshRequestPositionConnector());
+            }
+            if (contact.getConnector(GeoChatConnector.CONNECTOR_TYPE) == null) {
+                contact.addConnector(new GeoChatConnector(
+                        buildNativeConnectorSeed(contact.getName())));
+            }
+            writeDefaultConnectorPref(contact.getUID(), GeoChatConnector.CONNECTOR_TYPE);
+        } catch (Exception e) {
+            Log.w("UVPro.Handler", "applyMeshInboundConnectors failed", e);
+        }
+    }
+
+    public static String uidForDeviceContact(MeshBtConnectionManager.MeshDeviceContact contact) {
+        if (contact == null || contact.pubKeyHex == null || contact.pubKeyHex.length() < 12) {
+            return "";
+        }
+        String prefix = contact.pubKeyHex.substring(0, 12).toUpperCase(Locale.US);
+        if (contact.type == 0x02) {
+            return MESH_RPTR_UID_PREFIX + prefix;
+        }
+        return MESH_NODE_UID_PREFIX + prefix;
+    }
+
+    public static boolean favoriteDeviceContact(MeshBtConnectionManager meshBt,
+                                                MeshBtConnectionManager.MeshDeviceContact contact) {
+        if (contact == null) {
+            return false;
+        }
+        String uid = uidForDeviceContact(contact);
+        if (uid.isEmpty()) {
+            return false;
+        }
+        boolean atakOk = promoteMeshFavoriteContactByUid(uid, contact.name);
+        boolean deviceOk = meshBt != null && meshBt.addOrUpdateDeviceContactFavorite(contact);
+        return atakOk || deviceOk;
     }
 
     private static String formatMeshFavoriteName(String currentName, String uid, MapItem item) {
