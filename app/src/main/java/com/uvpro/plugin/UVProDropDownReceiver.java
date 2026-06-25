@@ -8308,7 +8308,6 @@ public class UVProDropDownReceiver extends DropDownReceiver
                             com.uvpro.plugin.ax25.Ax25Frame
                                     .createUVProFrame(callsign, 0, packetBytes);
                     activeTx.sendKissFrame(frame.encode());
-                    PingReplyNotifier.notePingSent(getMapView().getContext());
                     appendLog("Ping sent (" + transportLabelFor(activeTx) + ")");
                     showActionToast("Ping Sent");
                     rfSent = true;
@@ -8320,15 +8319,20 @@ public class UVProDropDownReceiver extends DropDownReceiver
         boolean wifiSent = false;
         if (cotBridge != null && cotBridge.canSendPingOverWifiNetwork()) {
             if (cotBridge.sendPingOverWifiNetwork(null)) {
-                if (!rfSent) {
-                    PingReplyNotifier.notePingSent(getMapView().getContext());
-                }
                 appendLog("Ping sent (ATAK WiFi)");
-                showActionToast("Ping Sent");
+                if (!rfSent) {
+                    showActionToast("Ping Sent");
+                }
                 wifiSent = true;
             } else if (!rfSent) {
                 appendLog("Ping not sent — WiFi/TAK dispatch failed");
             }
+        } else if (rfSent && cotBridge != null && !cotBridge.isWifiTransmitEnabled()) {
+            appendLog("Ping WiFi leg skipped (ATAK WiFi transmit off)");
+        }
+        if (rfSent || wifiSent) {
+            PingReplyNotifier.notePingSent(
+                    getMapView().getContext(), rfSent, wifiSent);
         }
         if (!rfSent && !wifiSent) {
             appendTransmitBlockedLog("Ping", activeTx);

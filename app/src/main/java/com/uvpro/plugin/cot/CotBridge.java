@@ -229,7 +229,7 @@ public class CotBridge {
     /** Set after {@link ChatBridge} construction; used to send compact TYPE_CHAT with wire ACK ids. */
     private volatile ChatBridge chatBridge;
     private volatile com.uvpro.plugin.protocol.PacketRouter packetRouter;
-    private volatile boolean wifiTransmitEnabled = true;
+    private volatile boolean wifiTransmitEnabled = false;
 
     private void markInboundInjectSkipOutboundRelay(String cotUid) {
         if (cotUid == null || cotUid.isEmpty()) return;
@@ -302,16 +302,16 @@ public class CotBridge {
         wifiTransmitEnabled = enabled;
     }
 
-    /** ATAK WiFi transmit on (or WiFi-only with no RF) and TAK endpoint available. */
+    public boolean isWifiTransmitEnabled() {
+        return wifiTransmitEnabled;
+    }
+
+    /** TAK/Wi-Fi ping only when ATAK WiFi transmit is explicitly enabled. */
     public boolean canSendPingOverWifiNetwork() {
-        if (!isTakNetworkAvailable()) {
+        if (!isTakNetworkAvailable() || !wifiTransmitEnabled) {
             return false;
         }
-        // WiFi-only stations use TAK for ping — SA Relay and RF toggles do not apply.
-        if (!isRadioConnected()) {
-            return true;
-        }
-        return wifiTransmitEnabled;
+        return true;
     }
 
     private boolean isTakNetworkAvailable() {
@@ -365,7 +365,7 @@ public class CotBridge {
         }
     }
 
-    /** Slotted ping reply over TAK/Wi‑Fi — independent of SA Relay and WiFi transmit toggle. */
+    /** Slotted ping reply over TAK/Wi‑Fi — overrides WiFi transmit toggle (same-transport reply). */
     public boolean sendSelfPositionOverWifiNetwork() {
         if (!isTakNetworkAvailable()) {
             return false;

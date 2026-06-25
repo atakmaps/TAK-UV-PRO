@@ -253,6 +253,12 @@ try {
         // Initialize sub-systems in dependency order:
         // 1. CotBridge (needs plugin context + MapView)
         cotBridge = new CotBridge(context, view);
+        try {
+            cotBridge.setWifiTransmitEnabled(
+                    PreferenceManager.getDefaultSharedPreferences(view.getContext())
+                            .getBoolean("uvpro_atak_wifi_transmit", false));
+        } catch (Exception ignored) {
+        }
         cotBridge.setLocalCallsign(callsign);
 
         // GeoChat DM CoT needs local device UID in chatgrp.uid1; resolve on UI thread once
@@ -539,7 +545,7 @@ try {
                     cotBridge);
         }, 5000L);
 
-        wifiContactKeepalive = new WifiContactKeepalive(view);
+        wifiContactKeepalive = new WifiContactKeepalive(view, cotBridge);
         wifiContactKeepalive.start();
         rfTakUplinkKeepalive = new RfTakUplinkKeepalive(view, cotBridge);
         rfTakUplinkKeepalive.start();

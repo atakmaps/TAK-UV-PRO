@@ -9,6 +9,7 @@ import android.widget.Toast;
 import com.atakmap.android.maps.MapView;
 import com.atakmap.coremap.cot.event.CotDetail;
 import com.atakmap.coremap.cot.event.CotEvent;
+import com.uvpro.plugin.cot.CotBuilder;
 import com.uvpro.plugin.util.CallsignUtil;
 
 import java.util.Locale;
@@ -26,18 +27,28 @@ public final class PingReplyNotifier {
     private static volatile long pingSentAtMs;
     /** Non-null after a directed ping — only this station may trigger a reply toast. */
     private static volatile String directedPingTargetCallsign;
+    private static volatile boolean lastPingIncludedRf;
+    private static volatile boolean lastPingIncludedWifi;
     private static final Set<String> toastedReplyKeys = ConcurrentHashMap.newKeySet();
 
     private PingReplyNotifier() {
     }
 
-    /** Call after a broadcast ping frame is successfully transmitted. */
-    public static void notePingSent(Context context) {
+    /** Call after a broadcast ping is transmitted (RF and/or WiFi leg). */
+    public static void notePingSent(Context context, boolean rfLeg, boolean wifiLeg) {
         pingSentAtMs = System.currentTimeMillis();
         directedPingTargetCallsign = null;
         toastedReplyKeys.clear();
+        lastPingIncludedRf = rfLeg;
+        lastPingIncludedWifi = wifiLeg;
         Log.d(TAG, "Ping sent — awaiting replies for up to "
-                + formatWaitSeconds(context) + "s");
+                + formatWaitSeconds(context) + "s"
+                + " (rf=" + rfLeg + " wifi=" + wifiLeg + ")");
+    }
+
+    /** @deprecated use {@link #notePingSent(Context, boolean, boolean)} */
+    public static void notePingSent(Context context) {
+        notePingSent(context, true, false);
     }
 
     /** Call after a directed position-request ping is transmitted. */
@@ -47,7 +58,11 @@ public final class PingReplyNotifier {
         toastedReplyKeys.clear();
         String target = targetCallsign != null ? targetCallsign.trim() : "";
         directedPingTargetCallsign = target.isEmpty() ? null : target;
-        Log.d(TAG, "Directed ping to " + target + " via " + transportLabel);
+        String label = transportLabel != null ? transportLabel : "";
+        lastPingIncludedRf = label.contains("MeshCore") || label.contains("UV-PRO");
+        lastPingIncludedWifi = label.contains("WiFi");
+        Log.d(TAG, "Directed ping to " + target + " via " + transportLabel
+                + " (rf=" + lastPingIncludedRf + " wifi=" + lastPingIncludedWifi + ")");
         if (target.isEmpty()) {
             showToast(context, "Ping sent");
         } else {
@@ -78,26 +93,27 @@ public final class PingReplyNotifier {
     }
 
     /**
-     * Pinger: inbound RF/mesh position CoT from a peer after we sent a ping.
+     * Pinger: inbound WiFi/TAK slotted ping reply CoT ({@link CotBuilder#WIFI_PING_REPLY_REMARKS_SOURCE}).
+     * Routine network SA updates must not be treated as ping replies.
      */
     public static void maybeNotifyPingReplyFromCot(Context context, CotEvent event) {
         if (event == null) {
             return;
         }
-        String type = event.getType();
-        if (type == null || type.startsWith("b-t-f")) {
+        if (!CotBuilder.isWifiPingReplyCot(event)) {
             return;
         }
-        if (!type.startsWith("a-f-") && !type.startsWith("a-n-")
-                && !type.startsWith("a-u-") && !type.startsWith("a-h-")
-                && !type.startsWith("b-m-p")) {
+        if (!lastPingIncludedWifi) {
+            String peer = extractCallsign(event);
+            Log.d(TAG, "Skip ping-reply toast (WiFi reply after RF-only ping)"
+                    + (peer != null ? " peer=" + peer : ""));
             return;
         }
         String callsign = extractCallsign(event);
         if (callsign == null || callsign.isEmpty()) {
             return;
         }
-        maybeNotifyPeerPosition(context, callsign, "CoT/" + type);
+        maybeNotifyPeerPosition(context, callsign, "WiFi ping reply");
     }
 
     private static void maybeNotifyPeerPosition(Context context, String peerCallsign,

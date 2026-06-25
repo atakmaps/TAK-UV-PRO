@@ -19,6 +19,7 @@ import com.atakmap.comms.CotDispatcher;
 import com.atakmap.comms.NetConnectString;
 import com.atakmap.commoncommo.CoTSendMethod;
 import com.atakmap.coremap.cot.event.CotEvent;
+import com.uvpro.plugin.cot.CotBridge;
 import com.uvpro.plugin.cot.CotBuilder;
 
 import java.util.ArrayList;
@@ -38,12 +39,14 @@ public final class WifiContactKeepalive {
     private static final String PREF_NON_STREAMING = "enableNonStreamingConnections";
 
     private final MapView mapView;
+    private final CotBridge cotBridge;
     private final Handler handler;
     private final Runnable tick;
     private boolean running;
 
-    public WifiContactKeepalive(MapView mapView) {
+    public WifiContactKeepalive(MapView mapView, CotBridge cotBridge) {
         this.mapView = mapView;
+        this.cotBridge = cotBridge;
         this.handler = new Handler(Looper.getMainLooper());
         this.tick = new Runnable() {
             @Override
@@ -81,6 +84,9 @@ public final class WifiContactKeepalive {
 
     private void tickOnce() {
         if (!isWifiAvailable()) {
+            return;
+        }
+        if (cotBridge == null || !cotBridge.isWifiTransmitEnabled()) {
             return;
         }
         if (!isNonStreamingEnabled()) {
