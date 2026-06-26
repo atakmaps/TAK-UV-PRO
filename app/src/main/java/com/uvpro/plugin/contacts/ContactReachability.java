@@ -92,6 +92,44 @@ public final class ContactReachability {
     }
 
     /**
+     * Contact-targeted map CoT should go out over RF only when at least one recipient
+     * is RF-reachable. WiFi/TAK-only peers are delivered by ATAK core; mixed selections
+     * still trigger one RF broadcast for the RF leg.
+     */
+    public static boolean hasAnyRfReachableMapRecipient(String[] toUIDs, CotBridge bridge) {
+        if (toUIDs == null || toUIDs.length == 0 || bridge == null || !bridge.isRadioConnected()) {
+            return false;
+        }
+        String self = safeSelfUid();
+        for (String uid : toUIDs) {
+            if (uid == null || uid.trim().isEmpty()) {
+                continue;
+            }
+            String trimmed = uid.trim();
+            if (ALL_CHAT_ROOMS.equalsIgnoreCase(trimmed)) {
+                continue;
+            }
+            if (!self.isEmpty() && self.equalsIgnoreCase(trimmed)) {
+                continue;
+            }
+            try {
+                Contact c = Contacts.getInstance().getContactByUuid(trimmed);
+                if (c instanceof IndividualContact
+                        && hasRfChatPath((IndividualContact) c, bridge)) {
+                    return true;
+                }
+            } catch (Exception ignored) {
+            }
+            // Plugin-registered UIDs can be WiFi/TAK-only; only trust the set when
+            // the UID does not look like an opaque ATAK device id (JJ-4/JJ-5 pattern).
+            if (bridge.isBtechContactUid(trimmed) && !isOpaqueWifiDeviceUid(trimmed)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Wi‑Fi-only peers (never heard on RF here) must not show an RF chat path.
      */
     private static boolean isWifiOnlyRemotePeer(IndividualContact contact, CotBridge bridge) {

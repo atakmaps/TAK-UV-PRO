@@ -893,4 +893,122 @@ public class CotBuilder {
             return null;
         }
     }
+
+    private static final String ALL_CHAT_ROOMS = "All Chat Rooms";
+
+    /**
+     * Stamp {@code <__dest><contact uid="…"/>…</__dest>} for contact-targeted RF relay.
+     * Receivers that are not listed should ignore the CoT (RF has no true unicast).
+     */
+    public static CotEvent stampDirectedDestinations(CotEvent source, String[] toUIDs) {
+        if (source == null || toUIDs == null || toUIDs.length == 0) {
+            return source;
+        }
+        CotEvent event;
+        try {
+            event = CotEvent.parse(source.toString());
+        } catch (Exception e) {
+            Log.w(TAG, "stampDirectedDestinations: clone failed", e);
+            return source;
+        }
+        if (event == null || !event.isValid()) {
+            return source;
+        }
+        CotDetail detail = event.getDetail();
+        if (detail == null) {
+            detail = new CotDetail("detail");
+            event.setDetail(detail);
+        }
+        CotDetail existing = detail.getChild("__dest");
+        if (existing != null) {
+            detail.removeChild(existing);
+        }
+        CotDetail destRoot = new CotDetail("__dest");
+        boolean any = false;
+        for (String raw : toUIDs) {
+            if (raw == null) {
+                continue;
+            }
+            String uid = raw.trim();
+            if (uid.isEmpty() || ALL_CHAT_ROOMS.equalsIgnoreCase(uid)) {
+                continue;
+            }
+            CotDetail contact = new CotDetail("contact");
+            contact.setAttribute("uid", uid);
+            destRoot.addChild(contact);
+            any = true;
+        }
+        if (!any) {
+            return event;
+        }
+        detail.addChild(destRoot);
+        return event;
+    }
+
+    /** Remove plugin routing metadata before handing CoT to ATAK. */
+    public static void stripDirectedDestinations(CotEvent event) {
+        if (event == null || event.getDetail() == null) {
+            return;
+        }
+        CotDetail dest = event.getDetail().getChild("__dest");
+        if (dest != null) {
+            event.getDetail().removeChild(dest);
+        }
+    }
+
+    /**
+     * @return true when the event is broadcast (no {@code __dest}) or lists this device UID.
+     */
+    public static boolean isDirectedCotForLocalDevice(CotEvent event, String selfUid,
+            java.util.function.Function<String, String> uidResolver) {
+        java.util.List<String> destUids = extractDirectedDestUids(event);
+        if (destUids.isEmpty()) {
+            return true;
+        }
+        if (selfUid == null || selfUid.trim().isEmpty()) {
+            return false;
+        }
+        String self = selfUid.trim();
+        for (String dest : destUids) {
+            if (dest == null || dest.trim().isEmpty()) {
+                continue;
+            }
+            String trimmed = dest.trim();
+            if (self.equalsIgnoreCase(trimmed)) {
+                return true;
+            }
+            if (uidResolver != null) {
+                String resolvedDest = uidResolver.apply(trimmed);
+                if (resolvedDest != null && self.equalsIgnoreCase(resolvedDest.trim())) {
+                    return true;
+                }
+                String resolvedSelf = uidResolver.apply(self);
+                if (resolvedSelf != null && resolvedSelf.trim().equalsIgnoreCase(trimmed)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public static java.util.List<String> extractDirectedDestUids(CotEvent event) {
+        java.util.ArrayList<String> out = new java.util.ArrayList<>();
+        if (event == null || event.getDetail() == null) {
+            return out;
+        }
+        CotDetail dest = event.getDetail().getChild("__dest");
+        if (dest == null) {
+            return out;
+        }
+        for (CotDetail child : dest.getChildren()) {
+            if (child == null) {
+                continue;
+            }
+            String uid = child.getAttribute("uid");
+            if (uid != null && !uid.trim().isEmpty()) {
+                out.add(uid.trim());
+            }
+        }
+        return out;
+    }
 }

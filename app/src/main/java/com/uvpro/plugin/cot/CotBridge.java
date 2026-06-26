@@ -751,42 +751,53 @@ public class CotBridge {
         return !isSelfPliBeacon(event);
     }
 
-    /**
-     * Contact-targeted map CoT (point/route/marker send-to-contact) when the destination
-     * is a known individual contact — not limited to plugin-registered RF UIDs.
-     */
-    private boolean shouldRelayMapCotToContactUids(String[] toUIDs) {
-        if (toUIDs == null || toUIDs.length == 0) {
-            return false;
-        }
-        String self = null;
-        try {
-            self = MapView.getDeviceUid();
-        } catch (Exception ignored) {
-        }
-        for (String uid : toUIDs) {
-            if (uid == null || uid.trim().isEmpty()) {
-                continue;
-            }
-            String trimmed = uid.trim();
-            if (ALL_CHAT_ROOMS.equalsIgnoreCase(trimmed)) {
-                continue;
-            }
-            if (self != null && self.equalsIgnoreCase(trimmed)) {
-                continue;
-            }
-            if (isBtechContactUid(trimmed)) {
-                return true;
-            }
+    private boolean isInboundDirectedRfCotForThisDevice(CotEvent event) {
+        String self = cachedLocalDeviceUidForGeoChat;
+        if (self == null || self.trim().isEmpty()) {
             try {
-                Contact c = Contacts.getInstance().getContactByUuid(trimmed);
-                if (c instanceof IndividualContact) {
-                    return true;
-                }
+                self = MapView.getDeviceUid();
             } catch (Exception ignored) {
             }
         }
-        return false;
+        return CotBuilder.isDirectedCotForLocalDevice(event, self, this::resolveBtechUidForId);
+    }
+
+    private void relayContactTargetedCotOverRadio(CotEvent event, String[] toUIDs) {
+        new Thread(() -> {
+            CotEvent rfEvent = (toUIDs != null && toUIDs.length > 0)
+                    ? CotBuilder.stampDirectedDestinations(event, toUIDs)
+                    : event;
+            sendCotOverRadio(rfEvent != null ? rfEvent : event);
+        }).start();
+    }
+
+    /**
+     * Contact-targeted map CoT (point/route/marker send-to-contact) when at least one
+     * destination is RF-reachable. WiFi/TAK-only recipients rely on ATAK core unicast.
+     */
+    private boolean shouldRelayMapCotToContactUids(String[] toUIDs) {
+        return com.uvpro.plugin.contacts.ContactReachability
+                .hasAnyRfReachableMapRecipient(toUIDs, this);
+    }
+
+    /** No RF peer can ACK when all directed recipients are WiFi/TAK-only. */
+    private boolean shouldRegisterCotRfRetry(CotEvent event) {
+        java.util.List<String> destUids = CotBuilder.extractDirectedDestUids(event);
+        if (!destUids.isEmpty()) {
+            return shouldRelayMapCotToContactUids(
+                    destUids.toArray(new String[0]));
+        }
+        return true;
+    }
+
+    private void cancelPendingCotRfRetry(String cotUid) {
+        if (cotUid == null || cotUid.trim().isEmpty()) {
+            return;
+        }
+        PendingOutboundCot removed = pendingOutboundCots.remove(cotUid.trim());
+        if (removed != null) {
+            Log.d(TAG, "Cancelled pending CoT RF retry uid=" + cotUid.trim());
+        }
     }
 
     private static final String ANDROID_UID_PREFIX = "ANDROID-";
@@ -1268,6 +1279,13 @@ public class CotBridge {
                 return;
             }
             sanitizeInboundAutoPointCot(event);
+            if (!isInboundDirectedRfCotForThisDevice(event)) {
+                Log.d(TAG, "Skipping directed RF CoT not addressed to this device: type="
+                        + event.getType() + " uid=" + event.getUID()
+                        + " destUids=" + CotBuilder.extractDirectedDestUids(event));
+                return;
+            }
+            CotBuilder.stripDirectedDestinations(event);
             Log.d(TAG, "Injecting decompressed CoT: type=" + event.getType()
                     + " uid=" + event.getUID());
             Log.d(TAG, "CoT received: type=" + event.getType() + " via "
@@ -1815,7 +1833,7 @@ public class CotBridge {
             }
 
             // Register ACK watchdog — skip GeoChat CoT (b-t-f*) which uses chat retry.
-            if (registerRetry) {
+            if (registerRetry && shouldRegisterCotRfRetry(event)) {
                 String cotType = event.getType();
                 if (cotType == null || !cotType.startsWith("b-t-f")) {
                     String uid = event.getUID();
@@ -2514,16 +2532,37 @@ public class CotBridge {
             }
 
             if (targetsBtechContact) {
-                Log.d(TAG, "Relaying contact-targeted CoT to radio: type=" + type
-                        + " uid=" + event.getUID()
-                        + " toUIDs=" + java.util.Arrays.toString(toUIDs));
                 if ("b-t-f".equals(type)) {
+                    Log.d(TAG, "Relaying contact-targeted CoT to radio: type=" + type
+                            + " uid=" + event.getUID()
+                            + " toUIDs=" + java.util.Arrays.toString(toUIDs));
                     if (chatBridge != null) {
                         new Thread(() -> chatBridge.relayOutboundGeoChatCot(event)).start();
                         return;
                     }
                 }
-                new Thread(() -> sendCotOverRadio(event)).start();
+                if (isRelayableMapCotType(type)) {
+                    if (isSelfPliBeacon(event)) {
+                        return;
+                    }
+                    if (!shouldRelayMapCotToContactUids(toUIDs)) {
+                        Log.d(TAG, "Skipping RF relay for WiFi-only map CoT recipients"
+                                + " (plugin contact): type=" + type
+                                + " uid=" + event.getUID()
+                                + " toUIDs=" + java.util.Arrays.toString(toUIDs));
+                        cancelPendingCotRfRetry(event.getUID());
+                        return;
+                    }
+                    Log.d(TAG, "Relaying contact-targeted map CoT to radio: type=" + type
+                            + " uid=" + event.getUID()
+                            + " toUIDs=" + java.util.Arrays.toString(toUIDs));
+                    relayContactTargetedCotOverRadio(event, toUIDs);
+                    return;
+                }
+                Log.d(TAG, "Relaying contact-targeted CoT to radio: type=" + type
+                        + " uid=" + event.getUID()
+                        + " toUIDs=" + java.util.Arrays.toString(toUIDs));
+                relayContactTargetedCotOverRadio(event, toUIDs);
                 return;
             }
 
@@ -2534,7 +2573,15 @@ public class CotBridge {
                 Log.d(TAG, "Relaying contact-targeted map CoT to radio: type=" + type
                         + " uid=" + event.getUID()
                         + " toUIDs=" + java.util.Arrays.toString(toUIDs));
-                new Thread(() -> sendCotOverRadio(event)).start();
+                relayContactTargetedCotOverRadio(event, toUIDs);
+                return;
+            }
+
+            if (isRelayableMapCotType(type) && toUIDs != null && toUIDs.length > 0) {
+                Log.d(TAG, "Skipping RF relay for WiFi-only map CoT recipients: type=" + type
+                        + " uid=" + event.getUID()
+                        + " toUIDs=" + java.util.Arrays.toString(toUIDs));
+                cancelPendingCotRfRetry(event.getUID());
                 return;
             }
 
