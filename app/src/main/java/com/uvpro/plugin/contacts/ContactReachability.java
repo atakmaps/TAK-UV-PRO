@@ -452,6 +452,11 @@ public final class ContactReachability {
         }
     }
 
+    /** Resolve an individual contact advertising a routable endpoint on {@code host}. */
+    public static IndividualContact findContactByRoutableHost(String host, CotBridge bridge) {
+        return findLanEndpointHostOwner(host, bridge);
+    }
+
     static String extractGeoChatPeerThreadUid(CotEvent event) {
         CotDetail chat = GeoChatContactListHelper.findChatDetailPublic(event);
         if (chat == null) {
