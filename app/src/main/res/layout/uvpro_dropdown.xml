@@ -1275,13 +1275,22 @@
                 android:background="@drawable/bg_uvpro_mesh_button" />
 
             <Button
+                android:id="@+id/btn_discover_repeaters"
+                style="@style/UvproPillButton.Beacon"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="Discover Repeaters"
+                android:background="@drawable/bg_uvpro_mesh_button" />
+
+            <Button
                 android:id="@+id/btn_add_mesh_channel"
                 style="@style/UvproPillButton.Beacon"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:layout_marginBottom="2dp"
-                android:text="+ Add Channel"
+                android:text="Channel Management"
                 android:background="@drawable/bg_uvpro_mesh_button" />
 
             <Button

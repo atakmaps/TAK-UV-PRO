@@ -350,7 +350,8 @@ try {
             }
             String display = sanitizeRepeaterDisplayName(advert.name);
             persistRepeaterAdvert(advert, display);
-            if (cotBridge != null && isMeshRepeaterDisplayEnabled()) {
+            if (cotBridge != null && (isMeshRepeaterDisplayEnabled()
+                    || meshBtConnectionManager.isNodeDiscoverSessionActive())) {
                 renderMeshRepeaterMarker(display, advert.pubKeyHex, advert.latitude, advert.longitude,
                         advert.advertTimestampSec);
             }

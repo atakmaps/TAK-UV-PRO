@@ -100,6 +100,55 @@ public final class MeshDeviceContactCache {
                 .apply();
     }
 
+    public static void upsertFromDeviceContact(Context context, @Nullable String deviceAddress,
+                                               @NonNull MeshBtConnectionManager.MeshDeviceContact contact) {
+        String addr = normalizeDeviceAddress(deviceAddress);
+        if (addr == null || contact.pubKeyHex == null) {
+            return;
+        }
+        String key = contact.pubKeyHex.trim().toUpperCase(Locale.US);
+        List<MeshBtConnectionManager.MeshDeviceContact> contacts = load(context, addr);
+        boolean replaced = false;
+        for (int i = 0; i < contacts.size(); i++) {
+            MeshBtConnectionManager.MeshDeviceContact existing = contacts.get(i);
+            if (existing.pubKeyHex != null
+                    && existing.pubKeyHex.toUpperCase(Locale.US).equals(key)) {
+                contacts.set(i, contact);
+                replaced = true;
+                break;
+            }
+        }
+        if (!replaced) {
+            contacts.add(contact);
+        }
+        save(context, addr, contacts);
+    }
+
+    public static void removeByPubKey(Context context, @Nullable String deviceAddress,
+                                      @Nullable String pubKeyHex) {
+        String addr = normalizeDeviceAddress(deviceAddress);
+        if (addr == null || pubKeyHex == null || pubKeyHex.trim().isEmpty()) {
+            return;
+        }
+        String key = pubKeyHex.trim().toUpperCase(Locale.US);
+        List<MeshBtConnectionManager.MeshDeviceContact> contacts = load(context, addr);
+        if (contacts.isEmpty()) {
+            return;
+        }
+        boolean removed = false;
+        for (int i = contacts.size() - 1; i >= 0; i--) {
+            MeshBtConnectionManager.MeshDeviceContact c = contacts.get(i);
+            if (c.pubKeyHex != null && pubKeysMatch(key, c.pubKeyHex.toUpperCase(Locale.US))) {
+                contacts.remove(i);
+                removed = true;
+                break;
+            }
+        }
+        if (removed) {
+            save(context, addr, contacts);
+        }
+    }
+
     public static void updateFavoriteFlag(Context context, @Nullable String deviceAddress,
                                           @Nullable String pubKeyHex, boolean favorite) {
         String addr = normalizeDeviceAddress(deviceAddress);
