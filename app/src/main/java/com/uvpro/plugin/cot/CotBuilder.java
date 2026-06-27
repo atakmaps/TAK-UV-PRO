@@ -930,6 +930,21 @@ public class CotBuilder {
                     "creator"));
 
     /**
+     * Drawing/shape CoT stores corner and vertex geometry in {@code link} detail children;
+     * stripping them breaks ATAK importers (e.g. {@code u-d-r} rectangles need four links).
+     */
+    private static boolean minifyPreservesLinkDetails(CotEvent event) {
+        if (event == null) {
+            return false;
+        }
+        String type = event.getType();
+        if (type == null || type.isEmpty()) {
+            return false;
+        }
+        return type.startsWith("u-d-") || type.startsWith("u-rb");
+    }
+
+    /**
      * Produce a minified CoT XML string by stripping non-essential {@code <detail>}
      * children before compression, so a typical point fits in a single radio fragment.
      *
@@ -962,6 +977,9 @@ public class CotBuilder {
                 }
                 String name = child.getElementName();
                 if (name != null && MINIFY_DROP_DETAILS.contains(name)) {
+                    if ("link".equals(name) && minifyPreservesLinkDetails(clone)) {
+                        continue;
+                    }
                     detail.removeChild(child);
                 }
             }

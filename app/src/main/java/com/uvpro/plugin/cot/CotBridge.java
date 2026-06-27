@@ -47,6 +47,7 @@ import com.uvpro.plugin.protocol.UVProPacket;
 import com.uvpro.plugin.protocol.PacketFragmenter;
 import com.uvpro.plugin.ui.SettingsFragment;
 import com.uvpro.plugin.UVProContactHandler;
+import com.uvpro.plugin.util.CallsignUtil;
 
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -762,7 +763,73 @@ public class CotBridge {
             } catch (Exception ignored) {
             }
         }
-        return CotBuilder.isDirectedCotForLocalDevice(event, self, this::resolveBtechUidForId);
+        if (CotBuilder.isDirectedCotForLocalDevice(event, self, this::resolveBtechUidForId)) {
+            return true;
+        }
+        // ATAK send-to-contact uses ANDROID-{callsign} labels; btechIdToUid only maps remotes.
+        for (String dest : CotBuilder.extractDirectedDestUids(event)) {
+            if (directedDestLooksLikeSelf(dest)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * True when a directed CoT {@code __dest} label refers to this device by callsign
+     * (e.g. {@code ANDROID-SMOKEY_15}) rather than opaque {@code ANDROID-{hex}} UID.
+     */
+    private boolean directedDestLooksLikeSelf(String dest) {
+        if (dest == null || dest.trim().isEmpty() || localCallsign == null) {
+            return false;
+        }
+        String r = dest.trim();
+        String loc = localCallsign.trim();
+        if (loc.isEmpty()) {
+            return false;
+        }
+        if (loc.equalsIgnoreCase(r)) {
+            return true;
+        }
+        try {
+            if (CallsignUtil.toRadioCallsign(loc).equalsIgnoreCase(r)) {
+                return true;
+            }
+        } catch (Exception ignored) {
+        }
+        try {
+            if (mapView != null) {
+                com.atakmap.android.maps.PointMapItem selfMarker = mapView.getSelfMarker();
+                if (selfMarker != null) {
+                    String m = selfMarker.getMetaString("callsign", null);
+                    if (m != null) {
+                        if (m.trim().equalsIgnoreCase(r)) {
+                            return true;
+                        }
+                        try {
+                            if (CallsignUtil.toRadioCallsign(m.trim()).equalsIgnoreCase(r)) {
+                                return true;
+                            }
+                        } catch (Exception ignored2) {
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        if (r.startsWith(ANDROID_UID_PREFIX)) {
+            String bare = r.substring(ANDROID_UID_PREFIX.length());
+            if (loc.equalsIgnoreCase(bare)) {
+                return true;
+            }
+            try {
+                if (CallsignUtil.toRadioCallsign(loc).equalsIgnoreCase(bare)) {
+                    return true;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return false;
     }
 
     private void relayContactTargetedCotOverRadio(CotEvent event, String[] toUIDs) {
