@@ -394,7 +394,9 @@ public class SettingsFragment extends PluginPreferenceFragment
             return;
         }
         pref.setPersistent(false);
-        syncEditTextPreferenceFromAtak(key);
+        if (!isSmartBeaconParamKey(key)) {
+            syncEditTextPreferenceFromAtak(key);
+        }
         pref.setOnPreferenceChangeListener((preference, newValue) -> {
             String text = newValue != null ? newValue.toString().trim() : "";
             if (uppercase) {
@@ -766,7 +768,25 @@ public class SettingsFragment extends PluginPreferenceFragment
         if (ctx == null) {
             return defaultValue;
         }
-        return getPrefs(ctx).getString(key, defaultValue);
+        SharedPreferences prefs = getPrefs(ctx);
+        if (!prefs.contains(key)) {
+            return defaultValue;
+        }
+        Object raw = prefs.getAll().get(key);
+        if (raw == null) {
+            return defaultValue;
+        }
+        if (raw instanceof String) {
+            String value = ((String) raw).trim();
+            return value.isEmpty() ? defaultValue : value;
+        }
+        if (raw instanceof Integer || raw instanceof Long || raw instanceof Float) {
+            return String.valueOf(raw);
+        }
+        if (raw instanceof Boolean) {
+            return ((Boolean) raw) ? "true" : "false";
+        }
+        return defaultValue;
     }
 
     private void syncListPreferenceFromAtak(String key, String defaultValue) {

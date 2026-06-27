@@ -3,7 +3,7 @@
 A free, open-source ATAK plugin that connects UV-PRO radios to the Android Team Awareness Kit (ATAK) over Bluetooth. Team members with radios can share positions, chat, and situational awareness data entirely off-grid — no cell service or internet required.
 
 - Package: `com.uvpro.plugin`
-- Current version: `2.0.13`
+- Current version: `2.0.14`
 - Target ATAK: `5.5.1` and `5.6.0` (CIV; build with `-Patak.version=5.6.0` for 5.6 installs)
 
 ## Features
@@ -41,6 +41,10 @@ A free, open-source ATAK plugin that connects UV-PRO radios to the Android Team 
 | **Transmit auto-failover** | ✅ Working | Preferred MeshCore vs UV-PRO transmit is tracked separately from the active toggle. If the preferred radio disconnects for **5+ minutes** while the alternate is connected, the toggle switches automatically; it restores when the preferred device reconnects. Manual toggle changes update preference and cancel failover. Logged in the main plugin panel. |
 | **Mesh beacon rate limits** | ✅ Working | When **ATAK MeshCore Transmit** is on and **Disable Mesh Beacon Limiting** is unchecked, runtime floors cap mesh periodic/Smart Beacon rates (interval/slow ≥ 30 min, fast/min-turn ≥ 5 min) without changing stored prefs. UV-PRO-only beacons are unaffected; checking the disable box removes caps. |
 | **Mesh map Delete Contact** | ✅ Working | Long-press a MeshCore node marker → details panel → **Delete Contact** removes the map item and ATAK contact (same pattern as APRS delete). |
+
+### 2026-06-26 Progress Update (v2.0.14)
+
+- **Beacon Settings crash:** Fix Tool Preferences crash when opening Beacon Settings caused by integer Smart Beacon prefs read as strings.
 
 ### 2026-06-25 Progress Update (v2.0.13)
 
