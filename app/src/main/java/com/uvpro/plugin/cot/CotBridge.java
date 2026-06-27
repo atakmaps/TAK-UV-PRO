@@ -2147,11 +2147,11 @@ public class CotBridge {
     /**
      * Send local GPS position over radio as compact GPS packet on a specific transport.
      */
-    public void sendPositionOverRadio(BtConnectionManager txManager,
+    public boolean sendPositionOverRadio(BtConnectionManager txManager,
                                       double lat, double lon, double alt,
                                       float speed, float course, int battery) {
         if (txManager == null || !txManager.isConnected()) {
-            return;
+            return false;
         }
 
         com.uvpro.plugin.protocol.RfTxArbitrator.get().markOpenRlTxStart();
@@ -2169,7 +2169,7 @@ public class CotBridge {
                 packetBytes = encryptionManager.encrypt(packetBytes);
                 if (packetBytes == null) {
                     Log.e(TAG, "Encryption failed — aborting GPS send");
-                    return;
+                    return false;
                 }
             }
 
@@ -2178,9 +2178,10 @@ public class CotBridge {
             byte[] ax25 = frame.encode();
 
             Log.d(TAG, "Sending GPS beacon: " + ax25.length + " bytes");
-            txManager.sendKissFrame(ax25);
+            return txManager.sendKissFrame(ax25);
         } catch (Exception e) {
             Log.e(TAG, "Error sending position over radio", e);
+            return false;
         } finally {
             com.uvpro.plugin.protocol.RfTxArbitrator.get().markOpenRlTxEnd();
         }

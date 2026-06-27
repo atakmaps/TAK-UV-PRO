@@ -125,6 +125,9 @@ public class UVProMapComponent extends DropDownMapComponent {
     public static final String PLUGIN_PACKAGE = "com.uvpro.plugin";
     public static final String ACTION_BEACON_INTERVAL_CHANGED =
             "com.uvpro.plugin.BEACON_INTERVAL_CHANGED";
+    /** Transmit transport preference changed — update CotBridge/ChatBridge without resetting beacon timer. */
+    public static final String ACTION_BEACON_TRANSPORT_CHANGED =
+            "com.uvpro.plugin.BEACON_TRANSPORT_CHANGED";
     private static final String PREF_ATAK_MESHCORE_TRANSMIT =
             "uvpro_atak_meshcore_transmit";
     private static final String PREF_SMART_BEACON_V21_OFF_MIGRATED =
@@ -172,6 +175,8 @@ public class UVProMapComponent extends DropDownMapComponent {
     private Runnable beaconRunnable;
     private Runnable beaconWaitForPositionRunnable;
     private boolean forceFirstPostConnectBeacon = false;
+    private static final long STARTUP_BEACON_DELAY_MS = 30_000L;
+    private static final long STARTUP_POSITION_POLL_MS = 2_000L;
     private Handler iconsetReminderHandler;
     private Runnable iconsetReminderRunnable;
     private android.content.BroadcastReceiver beaconIntervalReceiver;
@@ -403,8 +408,9 @@ try {
                 Log.d(TAG, "StatusOverlay: radio connected");
                 RadioStatusOverlay.setConnected(true);
                 scheduleMeshBootAfterRadioConnect(view);
-                // Anchor first periodic beacon to connection time.
-                startBeaconTimer();
+                if (shouldStartBeaconTimerOnUvProConnect()) {
+                    startBeaconTimer();
+                }
                 applyActiveTransmitTransportFromPreference();
                 triggerOneTimeStartupRadioGpsUpdate();
                 view.post(() -> {
@@ -644,12 +650,16 @@ try {
                         } else {
                             Log.d(TAG, "Beacon interval changed while disconnected — timer deferred");
                         }
+                    } else if (ACTION_BEACON_TRANSPORT_CHANGED.equals(i.getAction())) {
+                        Log.d(TAG, "Beacon transport changed — updating CotBridge/ChatBridge");
+                        applyActiveTransmitTransportFromPreference();
                     }
                 }
             };
             AtakBroadcast.DocumentedIntentFilter beaconFilter =
                     new AtakBroadcast.DocumentedIntentFilter();
             beaconFilter.addAction(ACTION_BEACON_INTERVAL_CHANGED);
+            beaconFilter.addAction(ACTION_BEACON_TRANSPORT_CHANGED);
             AtakBroadcast.getInstance()
                     .registerReceiver(beaconIntervalReceiver, beaconFilter);
         } catch (Exception e) {
@@ -683,6 +693,15 @@ try {
                 + callsign + ")");
 
         startGpsSpeedListener(view.getContext());
+
+        // Hot-reload / late mesh reconnect: arm beacon if a transport is already up when listeners register.
+        view.post(() -> {
+            if (isAnyTransportConnected()) {
+                Log.d(TAG, "Init: transport already connected — arming beacon timer");
+                startBeaconTimer();
+                applyActiveTransmitTransportFromPreference();
+            }
+        });
     }
 
     /** Start a GPS LocationListener to get Doppler-accurate speed and bearing. */
@@ -728,9 +747,7 @@ try {
         }
 
         // Stop beacon timer
-        if (beaconHandler != null && beaconRunnable != null) {
-            beaconHandler.removeCallbacks(beaconRunnable);
-        }
+        stopBeaconTimer();
         if (wifiContactKeepalive != null) {
             wifiContactKeepalive.stop();
             wifiContactKeepalive = null;
@@ -2378,36 +2395,70 @@ try {
         beaconRunnable = new Runnable() {
             @Override
             public void run() {
-                sendBeaconIfConnected(forceFirstPostConnectBeacon);
-                forceFirstPostConnectBeacon = false;
+                if (forceFirstPostConnectBeacon) {
+                    if (!hasValidSelfPosition()) {
+                        Log.d(TAG, "Startup beacon delayed — waiting for valid self marker position");
+                        beaconHandler.postDelayed(this, STARTUP_POSITION_POLL_MS);
+                        return;
+                    }
+                    if (!sendBeaconIfConnected(true)) {
+                        beaconHandler.postDelayed(this, STARTUP_POSITION_POLL_MS);
+                        return;
+                    }
+                    forceFirstPostConnectBeacon = false;
+                } else {
+                    sendBeaconIfConnected(false);
+                }
                 long nextCheckMs = getBeaconTimerDelayMs();
                 beaconHandler.postDelayed(this, nextCheckMs);
             }
         };
         if (hasValidSelfPosition()) {
-            Log.d(TAG, "Beacon timer armed: valid self position already present");
-            // First periodic beacon is 30s after valid position is available.
-            beaconHandler.postDelayed(beaconRunnable, 30_000L);
+            Log.d(TAG, "Beacon timer armed: valid self marker position already present");
+            beaconHandler.postDelayed(beaconRunnable, STARTUP_BEACON_DELAY_MS);
             return;
         }
-        // Wait for ATAK self position (GPS or manually set), then start 30s countdown.
+        // Wait for ATAK self marker position (phone GPS or manually set), then 30s countdown.
         beaconWaitForPositionRunnable = new Runnable() {
             @Override
             public void run() {
-                if (!isAnyTransportConnected() || beaconHandler == null) {
+                if (beaconHandler == null) {
                     return;
                 }
                 if (hasValidSelfPosition()) {
-                    Log.d(TAG, "Valid self position acquired; startup beacon in 30s");
-                    beaconHandler.postDelayed(beaconRunnable, 30_000L);
+                    Log.d(TAG, "Valid self marker position acquired; startup beacon in 30s");
+                    beaconHandler.postDelayed(beaconRunnable, STARTUP_BEACON_DELAY_MS);
                     beaconWaitForPositionRunnable = null;
                     return;
                 }
-                beaconHandler.postDelayed(this, 2_000L);
+                beaconHandler.postDelayed(this, STARTUP_POSITION_POLL_MS);
             }
         };
-        Log.d(TAG, "Beacon timer waiting for valid self position before startup countdown");
-        beaconHandler.postDelayed(beaconWaitForPositionRunnable, 2_000L);
+        Log.d(TAG, "Beacon timer waiting for valid self marker position before startup countdown");
+        beaconHandler.postDelayed(beaconWaitForPositionRunnable, STARTUP_POSITION_POLL_MS);
+    }
+
+    /** When MeshCore TX is preferred, do not anchor the 30s startup beacon to a UV-PRO connect. */
+    private boolean shouldStartBeaconTimerOnUvProConnect() {
+        String preferred = readPreferredTransmitTransportPref();
+        if ("mesh".equals(preferred)) {
+            Log.d(TAG, "UV-PRO connected — deferring beacon timer (MeshCore TX preferred)");
+            return false;
+        }
+        return true;
+    }
+
+    private String readPreferredTransmitTransportPref() {
+        try {
+            Context ctx = getBeaconPrefsContext();
+            if (ctx != null) {
+                return PreferenceManager.getDefaultSharedPreferences(ctx).getString(
+                        com.uvpro.plugin.ui.SettingsFragment.PREF_TRANSMIT_PREFERRED_TRANSPORT,
+                        "none");
+            }
+        } catch (Exception ignored) {
+        }
+        return "none";
     }
 
     private void stopBeaconTimer() {
@@ -2463,14 +2514,14 @@ try {
         }
     }
 
-    private void sendBeaconIfConnected(boolean forceImmediate) {
-        // Startup (30s post-connect) and periodic beacons use active transmit preference.
+    private boolean sendBeaconIfConnected(boolean forceImmediate) {
+        // Startup (30s post-position) and periodic beacons use active transmit preference.
         BtConnectionManager beaconTransport = forceImmediate
                 ? resolveStartupBeaconTransportManager()
                 : resolvePeriodicBeaconTransportManager();
         if (beaconTransport == null || !beaconTransport.isConnected()) {
             String detail = beaconTransport == null
-                    ? "no transmit transport selected"
+                    ? describeMissingBeaconTransport(forceImmediate)
                     : (beaconTransport == meshBtConnectionManager
                             ? "MeshCore not connected" : "UV-PRO not connected");
             Log.d(TAG, (forceImmediate ? "Startup" : "Periodic")
@@ -2479,17 +2530,26 @@ try {
                 dropDownReceiver.appendPluginLog(
                         "Startup beacon not sent — " + detail);
             }
-            return;
+            return false;
         }
-        if (cotBridge == null || mapView == null) return;
+        if (cotBridge == null || mapView == null) return false;
 
         try {
             Log.d(TAG, (forceImmediate ? "Startup" : "Periodic") + " beacon transport: "
                     + (beaconTransport == meshBtConnectionManager ? "MeshCore" : "UV-PRO"));
             com.atakmap.android.maps.PointMapItem self = mapView.getSelfMarker();
-            if (self == null) return;
+            if (self == null) {
+                return false;
+            }
 
             com.atakmap.coremap.maps.coords.GeoPoint gp = self.getPoint();
+            if (gp == null || !gp.isValid()
+                    || !RadioPositionFix.isValidCoordinate(gp.getLatitude(), gp.getLongitude())) {
+                if (forceImmediate) {
+                    Log.d(TAG, "Startup beacon skipped: no valid self marker position yet");
+                }
+                return false;
+            }
 
             // Speed and course: prefer live GPS (Doppler-accurate, no position-jitter) when available.
             // Fall back to position-derived only if the GPS listener hasn't produced a fix yet.
@@ -2525,7 +2585,7 @@ try {
                 lastBeaconLatDeg     = currentLat;
                 lastBeaconLonDeg     = currentLon;
                 lastBeaconPositionMs = nowMs;
-                if (!speedSrc.equals("derived")) {
+                if (!speedSrc.equals("derived") && self != null) {
                     try { course = Double.parseDouble(self.getMetaString("course", "0")); } catch (Exception ignored) {}
                 }
             }
@@ -2554,7 +2614,7 @@ try {
                         + " meshLimited=" + meshLimitedBeacon
                         + " smartFire=" + smartFire + " floorFire=" + floorFire
                         + " floorSec=" + fixedIntervalSec);
-                if (!smartFire && !floorFire) return;
+                if (!smartFire && !floorFire) return false;
                 if (meshLimitedBeacon) {
                     if (smartFire) {
                         meshLimitSec = smartBeacon.getFiringLimitSec(
@@ -2589,10 +2649,25 @@ try {
             }
 
             if (!disableAtak) {
-                cotBridge.sendPositionOverRadio(
+                boolean txOk = cotBridge.sendPositionOverRadio(
                         beaconTransport,
                         gp.getLatitude(), gp.getLongitude(),
                         gp.getAltitude(), (float) speedMs, (float) course, -1);
+                if (!txOk) {
+                    String transportLabel = beaconTransport == meshBtConnectionManager
+                            ? "MeshCore" : "UV-PRO";
+                    String beaconKind = forceImmediate ? "Startup" : "Periodic";
+                    String reason = beaconTransport == meshBtConnectionManager
+                            && meshBtConnectionManager != null
+                            && meshBtConnectionManager.isRadioSilenceEnabled()
+                            ? "mesh radio silence" : "transmit blocked";
+                    Log.w(TAG, beaconKind + " OPENRL beacon TX failed (" + reason + ")");
+                    if (forceImmediate && dropDownReceiver != null) {
+                        dropDownReceiver.appendPluginLog(
+                                "Startup beacon not sent — " + transportLabel + " " + reason);
+                    }
+                    return false;
+                }
                 openRlSent = true;
                 String transportLabel = beaconTransport == meshBtConnectionManager
                         ? "MeshCore" : "UV-PRO";
@@ -2615,8 +2690,10 @@ try {
             } else if (aprsEnabled) {
                 Log.d(TAG, "Periodic APRS beacon skipped (OPENRL priority)");
             }
+            return openRlSent;
         } catch (Exception e) {
             Log.e(TAG, "Error sending periodic beacon", e);
+            return false;
         }
     }
 
@@ -2662,26 +2739,99 @@ try {
     }
 
     private BtConnectionManager resolveBeaconTransportManager() {
+        BeaconTransportPreference pref = readBeaconTransportPreference();
+        boolean strictPreferred = pref.explicitPreferred;
+        boolean preferMesh = pref.preferMesh;
+        boolean preferUvpro = pref.preferUvpro;
+        BtConnectionManager active;
+        if (strictPreferred) {
+            active = resolveStrictPreferredTransport(preferMesh, preferUvpro);
+        } else {
+            active = com.uvpro.plugin.bluetooth.TransmitTransportResolver.resolve(
+                    preferMesh,
+                    preferUvpro,
+                    meshBtConnectionManager,
+                    btConnectionManager);
+        }
+        BtConnectionManager resolved = active != null && active.isConnected() ? active : null;
+        Log.d(TAG, "Beacon transport resolve preferred="
+                + (preferMesh ? "mesh" : (preferUvpro ? "uvpro" : "none"))
+                + " strict=" + strictPreferred
+                + " active=" + (resolved == meshBtConnectionManager ? "MeshCore"
+                : (resolved == btConnectionManager ? "UV-PRO" : "none")));
+        return resolved;
+    }
+
+    private static final class BeaconTransportPreference {
+        final boolean preferMesh;
+        final boolean preferUvpro;
+        /** User chose mesh or uvpro explicitly (not legacy toggle-only state). */
+        final boolean explicitPreferred;
+
+        BeaconTransportPreference(boolean preferMesh, boolean preferUvpro, boolean explicitPreferred) {
+            this.preferMesh = preferMesh;
+            this.preferUvpro = preferUvpro;
+            this.explicitPreferred = explicitPreferred;
+        }
+    }
+
+    private BeaconTransportPreference readBeaconTransportPreference() {
         boolean preferMesh = false;
         boolean preferUvpro = false;
+        boolean explicitPreferred = false;
         try {
             Context ctx = getBeaconPrefsContext();
             if (ctx != null) {
                 SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(ctx);
-                preferMesh = prefs.getBoolean(PREF_ATAK_MESHCORE_TRANSMIT, false);
-                preferUvpro = prefs.getBoolean(
-                        com.uvpro.plugin.ui.SettingsFragment.PREF_ATAK_UVPRO_TRANSMIT, false);
+                String preferred = prefs.getString(
+                        com.uvpro.plugin.ui.SettingsFragment.PREF_TRANSMIT_PREFERRED_TRANSPORT,
+                        "none");
+                if ("mesh".equals(preferred)) {
+                    preferMesh = true;
+                    preferUvpro = false;
+                    explicitPreferred = true;
+                } else if ("uvpro".equals(preferred)) {
+                    preferMesh = false;
+                    preferUvpro = true;
+                    explicitPreferred = true;
+                } else {
+                    preferMesh = prefs.getBoolean(PREF_ATAK_MESHCORE_TRANSMIT, false);
+                    preferUvpro = prefs.getBoolean(
+                            com.uvpro.plugin.ui.SettingsFragment.PREF_ATAK_UVPRO_TRANSMIT, false);
+                }
             }
         } catch (Exception ignored) {
             preferMesh = false;
             preferUvpro = false;
         }
-        BtConnectionManager active = com.uvpro.plugin.bluetooth.TransmitTransportResolver.resolve(
-                preferMesh,
-                preferUvpro,
-                meshBtConnectionManager,
-                btConnectionManager);
-        return active != null && active.isConnected() ? active : null;
+        return new BeaconTransportPreference(preferMesh, preferUvpro, explicitPreferred);
+    }
+
+    /** No UV-PRO / MeshCore cross-fallback when the user picked a transmit transport. */
+    private BtConnectionManager resolveStrictPreferredTransport(
+            boolean preferMesh, boolean preferUvpro) {
+        if (preferMesh) {
+            return meshBtConnectionManager;
+        }
+        if (preferUvpro) {
+            return btConnectionManager;
+        }
+        return null;
+    }
+
+    private String describeMissingBeaconTransport(boolean forceImmediate) {
+        BeaconTransportPreference pref = readBeaconTransportPreference();
+        if (pref.explicitPreferred && pref.preferMesh) {
+            return forceImmediate
+                    ? "MeshCore TX selected — waiting for mesh connect"
+                    : "MeshCore TX selected — mesh not connected";
+        }
+        if (pref.explicitPreferred && pref.preferUvpro) {
+            return forceImmediate
+                    ? "UV-PRO TX selected — waiting for UV-PRO connect"
+                    : "UV-PRO TX selected — UV-PRO not connected";
+        }
+        return "no transmit transport selected";
     }
 
     private boolean hasValidSelfPosition() {

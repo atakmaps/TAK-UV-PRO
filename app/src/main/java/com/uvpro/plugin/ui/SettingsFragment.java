@@ -136,6 +136,9 @@ public class SettingsFragment extends PluginPreferenceFragment
     public static final String PREF_PING_REPLY_SAME_TRANSPORT = "uvpro_ping_reply_same_transport";
     public static final String PREF_ATAK_MESHCORE_TRANSMIT = "uvpro_atak_meshcore_transmit";
     public static final String PREF_ATAK_UVPRO_TRANSMIT = "uvpro_atak_uvpro_transmit";
+    /** Last user transmit choice: {@code mesh}, {@code uvpro}, or {@code none}. */
+    public static final String PREF_TRANSMIT_PREFERRED_TRANSPORT =
+            "uvpro_transmit_preferred_transport";
     /** Admin-only — UI persistence only; limiting logic wired elsewhere. */
     public static final String PREF_DISABLE_MESH_BEACON_LIMITING =
             "uvpro_disable_mesh_beacon_limiting";

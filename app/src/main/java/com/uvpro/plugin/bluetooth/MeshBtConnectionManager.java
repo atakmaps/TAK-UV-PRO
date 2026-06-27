@@ -1448,24 +1448,93 @@ public class MeshBtConnectionManager extends BtConnectionManager {
 
         int channel = getMeshChannelIndex();
         int msgId = outboundMsgId.getAndIncrement() & 0x7fffffff;
-        int total = (ax25Frame.length + MAX_RAW_AX25_CHUNK - 1) / MAX_RAW_AX25_CHUNK;
+        String msgIdStr = String.valueOf(msgId);
+        int total = sendAx25EnvelopeChunks(channel, msgIdStr, ax25Frame);
+        if (total <= 0) {
+            return false;
+        }
+        Log.d(TAG, "TX ATAK_DATA ch=" + channel + " ax25=" + ax25Frame.length + " bytes"
+                + " chunks=" + total);
+        packetRouter.notifyPacketTransmitted();
+        return true;
+    }
+
+    /**
+     * Send UVAX1 envelope chunk(s). Prefer a single companion frame when the full AX.25
+     * frame fits the 130-char mesh envelope limit (typical OPENRL GPS beacons).
+     */
+    private int sendAx25EnvelopeChunks(int channel, String msgIdStr, byte[] ax25Frame) {
+        String singlePayload = buildAx25EnvelopePayload(msgIdStr, 1, 1, ax25Frame);
+        if (singlePayload != null && singlePayload.length() <= MAX_MESH_MESSAGE_LEN) {
+            enqueueCommand(buildSendChannelDataCommand(
+                    channel,
+                    ATAK_DATA_TYPE_AX25,
+                    singlePayload.getBytes(StandardCharsets.UTF_8)));
+            return 1;
+        }
+
+        int chunkSize = maxRawAx25ChunkBytes(msgIdStr, MAX_RAW_AX25_CHUNK);
+        if (chunkSize < 1) {
+            return 0;
+        }
+        int total = (ax25Frame.length + chunkSize - 1) / chunkSize;
         for (int i = 0; i < total; i++) {
-            int off = i * MAX_RAW_AX25_CHUNK;
-            int len = Math.min(MAX_RAW_AX25_CHUNK, ax25Frame.length - off);
+            int off = i * chunkSize;
+            int len = Math.min(chunkSize, ax25Frame.length - off);
             byte[] chunk = new byte[len];
             System.arraycopy(ax25Frame, off, chunk, 0, len);
-            String b64 = Base64.encodeToString(chunk, Base64.NO_WRAP);
-            String payload = ENV_PREFIX + msgId + "|" + (i + 1) + "|" + total + "|" + b64;
-            if (payload.length() > MAX_MESH_MESSAGE_LEN) {
-                return false;
+            String payload = buildAx25EnvelopePayload(msgIdStr, i + 1, total, chunk);
+            if (payload == null || payload.length() > MAX_MESH_MESSAGE_LEN) {
+                return 0;
             }
             enqueueCommand(buildSendChannelDataCommand(
                     channel,
                     ATAK_DATA_TYPE_AX25,
                     payload.getBytes(StandardCharsets.UTF_8)));
         }
-        packetRouter.notifyPacketTransmitted();
-        return true;
+        return total;
+    }
+
+    private static String buildAx25EnvelopePayload(String msgIdStr, int seq, int total, byte[] raw) {
+        if (raw == null || raw.length == 0) {
+            return null;
+        }
+        String b64 = Base64.encodeToString(raw, Base64.NO_WRAP);
+        return ENV_PREFIX + msgIdStr + "|" + seq + "|" + total + "|" + b64;
+    }
+
+  /** Max raw bytes per chunk so the UVAX1 envelope stays within {@link #MAX_MESH_MESSAGE_LEN}. */
+    private static int maxRawAx25ChunkBytes(String msgIdStr, int fallback) {
+        int maxRaw = 0;
+        for (int n = 1; n <= fallback; n++) {
+            // Worst-case seq/total digit width for envelope header sizing.
+            String probe = buildAx25EnvelopePayload(msgIdStr, 9, 9, new byte[n]);
+            if (probe != null && probe.length() <= MAX_MESH_MESSAGE_LEN) {
+                maxRaw = n;
+            } else {
+                break;
+            }
+        }
+        return maxRaw > 0 ? maxRaw : fallback;
+    }
+
+    private static final long[] INCOMPLETE_CHUNK_DRAIN_DELAYS_MS = {25L, 100L, 300L};
+    private int incompleteChunkDrainGeneration = 0;
+
+    /** Prompt companion queue drain when a multi-chunk AX.25 frame is only partially received. */
+    private void scheduleIncompleteChunkDrain() {
+        if (!connected.get()) {
+            return;
+        }
+        final int gen = ++incompleteChunkDrainGeneration;
+        for (long delay : INCOMPLETE_CHUNK_DRAIN_DELAYS_MS) {
+            ioHandler.postDelayed(() -> {
+                if (!connected.get() || gen != incompleteChunkDrainGeneration) {
+                    return;
+                }
+                enqueueCommand(buildGetNextMessageCommand());
+            }, delay);
+        }
     }
 
     @Override
@@ -3263,7 +3332,10 @@ public class MeshBtConnectionManager extends BtConnectionManager {
             }
             acc.parts.put(seq, chunk);
             acc.lastUpdateMs = System.currentTimeMillis();
-            if (acc.parts.size() < total) return;
+            if (acc.parts.size() < total) {
+                scheduleIncompleteChunkDrain();
+                return;
+            }
 
             int len = 0;
             for (int i = 1; i <= total; i++) {
