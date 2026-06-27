@@ -17,6 +17,7 @@ import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.drawable.GradientDrawable;
 import android.preference.PreferenceManager;
@@ -323,6 +324,7 @@ public class UVProDropDownReceiver extends DropDownReceiver
     private Button btnVfoB;
     private Button btnDigital;
     private TextView selectedRepeaterText;
+    private View repeaterLoadScrollAnchor;
     private GridLayout channelsGrid;
     private Switch switchDualWatch;
     private Switch switchDigitalEdit;
@@ -1296,6 +1298,7 @@ public class UVProDropDownReceiver extends DropDownReceiver
         btnVfoB = rootView.findViewById(getId("btn_vfo_b"));
         btnDigital = rootView.findViewById(getId("btn_digital"));
         selectedRepeaterText = rootView.findViewById(getId("text_selected_repeater"));
+        repeaterLoadScrollAnchor = rootView.findViewById(getId("repeater_load_scroll_anchor"));
         channelsGrid = rootView.findViewById(getId("grid_channels"));
         switchDualWatch = rootView.findViewById(getId("switch_dual_watch"));
         switchDigitalEdit = rootView.findViewById(getId("switch_digital_edit"));
@@ -9922,33 +9925,48 @@ public class UVProDropDownReceiver extends DropDownReceiver
         getMapView().postDelayed(this::scrollToRepeaterLoadSection, 320L);
         getMapView().postDelayed(this::scrollToRepeaterLoadSection, 700L);
         getMapView().postDelayed(this::scrollToRepeaterLoadSection, 1200L);
+        getMapView().postDelayed(this::scrollToRepeaterLoadSection, 1800L);
     }
 
-    private void scrollToRepeaterLoadSection() {
-        if (!(rootView instanceof ScrollView)) {
+    private void scrollDropdownToView(View target, int topInsetDp) {
+        if (!(rootView instanceof ScrollView) || target == null) {
             return;
         }
         ScrollView scroll = (ScrollView) rootView;
+        if (scroll.getChildCount() <= 0) {
+            return;
+        }
+        View content = scroll.getChildAt(0);
+        Context ctx = getMapView() != null ? getMapView().getContext() : null;
+        if (ctx == null) {
+            return;
+        }
+        final int inset = dip(ctx, topInsetDp);
         scroll.post(() -> {
-            View target = btnLoadSelectedRepeater != null ? btnLoadSelectedRepeater : channelsGrid;
-            if (target == null) {
+            if (target.getHeight() <= 0) {
                 return;
             }
-            // Convert nested child position to ScrollView content coordinates.
-            int y = 0;
-            View cursor = target;
-            while (cursor != null && cursor != scroll) {
-                y += cursor.getTop();
-                android.view.ViewParent p = cursor.getParent();
-                cursor = (p instanceof View) ? (View) p : null;
+            Rect rect = new Rect();
+            target.getDrawingRect(rect);
+            if (content instanceof ViewGroup) {
+                ((ViewGroup) content).offsetDescendantRectToMyCoords(target, rect);
             }
-            // Keep a bit of headroom so "Selected Repeater" and the button are in view.
-            y = Math.max(0, y - dip(getMapView().getContext(), 64));
-            final int scrollY = y;
-            scroll.scrollTo(0, scrollY);
-            scroll.post(() -> scroll.smoothScrollTo(0, scrollY));
-            pulseRepeaterLoadButton();
+            rect.top = Math.max(0, rect.top - inset);
+            scroll.requestChildRectangleOnScreen(content, rect, true);
         });
+    }
+
+    private void scrollToRepeaterLoadSection() {
+        View target = repeaterLoadScrollAnchor;
+        if (target == null) {
+            target = btnLoadSelectedRepeater != null
+                    ? btnLoadSelectedRepeater : selectedRepeaterText;
+        }
+        if (target == null) {
+            return;
+        }
+        scrollDropdownToView(target, 12);
+        pulseRepeaterLoadButton();
     }
 
     private void pulseRepeaterLoadButton() {

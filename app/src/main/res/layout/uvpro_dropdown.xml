@@ -470,56 +470,64 @@
             android:padding="12dp"
             android:layout_marginBottom="8dp">
 
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="CHANNEL CONTROL"
-                android:textColor="#FF00BCD4"
-                android:textSize="12sp"
-                android:textStyle="bold"
-                android:paddingBottom="4dp" />
-
-            <Button
-                android:id="@+id/btn_radio_silence"
-                style="@style/UvproPillButton.Beacon"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:text="Long Press for Radio Silence"
-                android:background="@drawable/bg_uvpro_channel_button" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Selected Repeater"
-                android:textColor="#FFAAAAAA"
-                android:textSize="11sp"
-                android:paddingTop="4dp" />
-
-            <TextView
-                android:id="@+id/text_selected_repeater"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="None selected"
-                android:textColor="#FFFFFFFF"
-                android:textSize="12sp"
-                android:paddingTop="2dp"
-                android:paddingBottom="6dp" />
-
             <LinearLayout
+                android:id="@+id/repeater_load_scroll_anchor"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingBottom="8dp">
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="CHANNEL CONTROL"
+                    android:textColor="#FF00BCD4"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:paddingBottom="4dp" />
 
                 <Button
-                    android:id="@+id/btn_load_selected_repeater"
+                    android:id="@+id/btn_radio_silence"
                     style="@style/UvproPillButton.Beacon"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Load Selected Repeater"
-                    android:enabled="false"
+                    android:layout_marginBottom="8dp"
+                    android:text="Long Press for Radio Silence"
                     android:background="@drawable/bg_uvpro_channel_button" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Selected Repeater"
+                    android:textColor="#FFAAAAAA"
+                    android:textSize="11sp"
+                    android:paddingTop="4dp" />
+
+                <TextView
+                    android:id="@+id/text_selected_repeater"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="None selected"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="12sp"
+                    android:paddingTop="2dp"
+                    android:paddingBottom="6dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingBottom="8dp">
+
+                    <Button
+                        android:id="@+id/btn_load_selected_repeater"
+                        style="@style/UvproPillButton.Beacon"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Load Selected Repeater"
+                        android:enabled="false"
+                        android:background="@drawable/bg_uvpro_channel_button" />
+                </LinearLayout>
+
             </LinearLayout>
 
             <LinearLayout
