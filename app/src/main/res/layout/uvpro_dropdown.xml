@@ -1382,7 +1382,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="Clear All Mesh Contacts"
+                android:text="Clear Mesh Contacts From Map"
                 android:background="@drawable/bg_uvpro_mesh_button" />
 
         </LinearLayout>
