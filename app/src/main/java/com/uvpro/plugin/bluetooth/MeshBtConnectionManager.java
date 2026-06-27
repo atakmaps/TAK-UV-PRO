@@ -2135,7 +2135,9 @@ public class MeshBtConnectionManager extends BtConnectionManager {
         if (!connected.get()) {
             return false;
         }
-        enqueueCommand(new byte[]{CMD_SEND_SELF_ADVERT});
+        // Firmware: 1 byte = zero-hop only; 2nd byte 0x01 = flood (mesh-wide discovery).
+        enqueueCommand(new byte[]{CMD_SEND_SELF_ADVERT, 0x01});
+        Log.i(TAG, "sendSelfAdvert queued (flood)");
         return true;
     }
 
@@ -2758,6 +2760,8 @@ public class MeshBtConnectionManager extends BtConnectionManager {
                     pendingDeviceContactsList.add(parsed);
                 } else {
                     notifyDeviceContactUpdated(parsed);
+                    // Full contact from advert refresh (0x80) — same payload as NEW_ADVERT.
+                    dispatchMeshAdvertDiscovery(pkt);
                 }
             }
             return;
@@ -2844,32 +2848,12 @@ public class MeshBtConnectionManager extends BtConnectionManager {
             handleSendConfirmed(pkt);
             return;
         }
-        if (t == PUSH_CODE_NEW_ADVERT || t == PUSH_CODE_ADVERT || t == RESP_CODE_CONTACT) {
+        if (t == PUSH_CODE_NEW_ADVERT || t == PUSH_CODE_ADVERT) {
             if (t == PUSH_CODE_ADVERT) {
                 requestFullContactForAdvertRefresh(pkt);
             }
-            MeshAdvert meshAdvert = parseMeshAdvert(pkt);
-            if (meshAdvert != null) {
-                if (!meshAdvert.isRepeater()) {
-                    maybeToastNodeDiscovery(meshAdvert);
-                }
-                notifyMeshAdvert(meshAdvert);
-                if (meshAdvert.advertType == ADV_TYPE_ROOM
-                        && meshAdvert.name != null && !meshAdvert.name.trim().isEmpty()) {
-                    notifyDeviceContactUpdated(new MeshDeviceContact(
-                            meshAdvert.pubKeyHex, ADV_TYPE_ROOM, 0, 0, meshAdvert.name.trim(),
-                            (int) meshAdvert.advertTimestampSec,
-                            meshAdvert.latitude, meshAdvert.longitude, 0));
-                }
-                if (meshAdvert.isRepeater()) {
-                    RepeaterAdvert advert = repeaterAdvertFromMesh(meshAdvert);
-                    maybeToastRepeaterDiscovery(advert);
-                    notifyRepeaterAdvert(advert);
-                }
-            }
-            if (t == PUSH_CODE_NEW_ADVERT || t == PUSH_CODE_ADVERT) {
-                return;
-            }
+            dispatchMeshAdvertDiscovery(pkt);
+            return;
         }
 
         String message = null;
@@ -3071,6 +3055,29 @@ public class MeshBtConnectionManager extends BtConnectionManager {
                 advert.latitude,
                 advert.longitude,
                 advert.hasPosition);
+    }
+
+    private void dispatchMeshAdvertDiscovery(byte[] pkt) {
+        MeshAdvert meshAdvert = parseMeshAdvert(pkt);
+        if (meshAdvert == null) {
+            return;
+        }
+        if (!meshAdvert.isRepeater()) {
+            maybeToastNodeDiscovery(meshAdvert);
+        }
+        notifyMeshAdvert(meshAdvert);
+        if (meshAdvert.advertType == ADV_TYPE_ROOM
+                && meshAdvert.name != null && !meshAdvert.name.trim().isEmpty()) {
+            notifyDeviceContactUpdated(new MeshDeviceContact(
+                    meshAdvert.pubKeyHex, ADV_TYPE_ROOM, 0, 0, meshAdvert.name.trim(),
+                    (int) meshAdvert.advertTimestampSec,
+                    meshAdvert.latitude, meshAdvert.longitude, 0));
+        }
+        if (meshAdvert.isRepeater()) {
+            RepeaterAdvert advert = repeaterAdvertFromMesh(meshAdvert);
+            maybeToastRepeaterDiscovery(advert);
+            notifyRepeaterAdvert(advert);
+        }
     }
 
     private void requestFullContactForAdvertRefresh(byte[] pkt) {
