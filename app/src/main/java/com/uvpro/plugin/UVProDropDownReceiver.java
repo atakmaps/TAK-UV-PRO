@@ -3616,8 +3616,11 @@ public class UVProDropDownReceiver extends DropDownReceiver
         TextView label = new TextView(ctx);
         label.setText(entry.type == ManagedChannelEntry.TYPE_ROOM
                 ? "Room: " + entry.label : entry.label);
-        label.setTextColor(0xFFFFFFFF);
+        label.setTextColor(0xFF00BCD4);
         label.setTextSize(14f);
+        label.setClickable(true);
+        label.setFocusable(true);
+        label.setOnClickListener(v -> showManagedChannelDetails(entry));
         row.addView(label, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
@@ -5141,6 +5144,114 @@ public class UVProDropDownReceiver extends DropDownReceiver
         StringBuilder sb = new StringBuilder(bytes.length * 2);
         for (byte b : bytes) sb.append(String.format("%02x", b));
         return sb.toString();
+    }
+
+    private void showManagedChannelDetails(ManagedChannelEntry entry) {
+        if (entry == null) {
+            return;
+        }
+        if (entry.type == ManagedChannelEntry.TYPE_ROOM) {
+            showRoomDetailsDialog(entry.label, entry.pubKeyHex);
+        } else {
+            showChannelSettingsMenu(entry.slot, entry.label);
+        }
+    }
+
+    private void showRoomDetailsDialog(@Nullable String roomName, @Nullable String pubKeyRaw) {
+        Context ctx = getMapView().getContext();
+        String displayName = roomName != null && !roomName.trim().isEmpty()
+                ? roomName.trim() : "Room";
+        String pubKey = normalizePubKeyHex(pubKeyRaw);
+
+        int pad = dip(ctx, 16);
+        ScrollView scroll = new ScrollView(ctx);
+        LinearLayout layout = new LinearLayout(ctx);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(pad, pad / 2, pad, pad / 2);
+
+        TextView typeLbl = new TextView(ctx);
+        typeLbl.setText("Room Server");
+        typeLbl.setTextColor(0xFFAAAAAA);
+        typeLbl.setTextSize(12f);
+        layout.addView(typeLbl, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        TextView nameLbl = new TextView(ctx);
+        nameLbl.setText(displayName);
+        nameLbl.setTextColor(0xFFFFFFFF);
+        nameLbl.setTextSize(16f);
+        LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        nameLp.bottomMargin = dip(ctx, 8);
+        layout.addView(nameLbl, nameLp);
+
+        if (pubKey != null && pubKey.length() == 64) {
+            TextView pubLbl = new TextView(ctx);
+            pubLbl.setText("Public Key (long-press to copy)");
+            pubLbl.setTextColor(0xFFAAAAAA);
+            pubLbl.setTextSize(12f);
+            layout.addView(pubLbl, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT));
+
+            EditText pubView = new EditText(ctx);
+            pubView.setText(pubKey);
+            pubView.setTextIsSelectable(true);
+            pubView.setFocusableInTouchMode(true);
+            pubView.setInputType(InputType.TYPE_NULL);
+            pubView.setTextSize(12f);
+            pubView.setTextColor(0xFF00BCD4);
+            pubView.setBackgroundColor(0xFF1A1A1A);
+            pubView.setPadding(pad / 2, pad / 2, pad / 2, pad / 2);
+            layout.addView(pubView, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT));
+
+            String qrContent = "meshcore://contact/add?name="
+                    + Uri.encode(displayName)
+                    + "&public_key=" + pubKey
+                    + "&type=" + MeshBtConnectionManager.ADV_TYPE_ROOM;
+            android.graphics.Bitmap qrBmp = generateQrBitmap(qrContent, 400);
+            if (qrBmp != null) {
+                TextView qrLbl = new TextView(ctx);
+                qrLbl.setText("Share QR (scan to join this room)");
+                qrLbl.setTextColor(0xFFAAAAAA);
+                qrLbl.setTextSize(12f);
+                LinearLayout.LayoutParams qrLblLp = new LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT);
+                qrLblLp.topMargin = dip(ctx, 12);
+                layout.addView(qrLbl, qrLblLp);
+
+                android.widget.ImageView qrView = new android.widget.ImageView(ctx);
+                int qrSizePx = dip(ctx, 240);
+                LinearLayout.LayoutParams qrLp = new LinearLayout.LayoutParams(qrSizePx, qrSizePx);
+                qrLp.gravity = Gravity.CENTER_HORIZONTAL;
+                qrLp.topMargin = dip(ctx, 8);
+                qrView.setImageBitmap(qrBmp);
+                qrView.setBackgroundColor(android.graphics.Color.WHITE);
+                qrView.setPadding(dip(ctx, 8), dip(ctx, 8), dip(ctx, 8), dip(ctx, 8));
+                qrView.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+                layout.addView(qrView, qrLp);
+            }
+        } else {
+            TextView warn = new TextView(ctx);
+            warn.setText("Public key unavailable — reconnect or sync contacts from the radio.");
+            warn.setTextColor(0xFF888888);
+            warn.setTextSize(13f);
+            layout.addView(warn, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
+
+        scroll.addView(layout);
+        new AlertDialog.Builder(ctx)
+                .setTitle("Room Details")
+                .setView(scroll)
+                .setPositiveButton("Done", null)
+                .show();
     }
 
     private void showChannelSettingsMenu(int slotIdx, String channelName) {
