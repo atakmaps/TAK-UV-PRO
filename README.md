@@ -42,6 +42,10 @@ A free, open-source ATAK plugin that connects UV-PRO radios to the Android Team 
 | **Mesh beacon rate limits** | ✅ Working | When **ATAK MeshCore Transmit** is on and **Disable Mesh Beacon Limiting** is unchecked, runtime floors cap mesh periodic/Smart Beacon rates (interval/slow ≥ 30 min, fast/min-turn ≥ 5 min) without changing stored prefs. UV-PRO-only beacons are unaffected; checking the disable box removes caps. |
 | **Mesh map Delete Contact** | ✅ Working | Long-press a MeshCore node marker → details panel → **Delete Contact** removes the map item and ATAK contact (same pattern as APRS delete). |
 
+### 2026-06-25 Progress Update (v2.0.13)
+
+- **GPS beacon interval sync:** Tool Preferences beacon interval no longer reverts on exit; plugin panel **GPS Beacon Interval** updates live when settings change.
+
 ### 2026-06-18 Progress Update (v2.0.12)
 
 - **MeshCore expanded chat:** Plugin panel adds **Expand Chat Window** for channel and contact DM tabs; large popup with keyboard, Send, and Close syncs back to the inline chat view.

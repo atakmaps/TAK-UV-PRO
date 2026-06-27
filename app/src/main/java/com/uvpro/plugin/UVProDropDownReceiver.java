@@ -10,6 +10,7 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.BroadcastReceiver;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
@@ -397,6 +398,7 @@ public class UVProDropDownReceiver extends DropDownReceiver
     private Button updateGpsPulseTargetButton;
     private ValueAnimator initialGroupSetupPulseAnimator;
     private GradientDrawable initialGroupSetupPulseDrawable;
+    private BroadcastReceiver beaconSettingsReceiver;
     private final AtomicBoolean snapshotReadInFlight = new AtomicBoolean(false);
     private final AtomicBoolean snapshotRefreshPending = new AtomicBoolean(false);
     private final AtomicBoolean snapshotFullRefreshPending = new AtomicBoolean(false);
@@ -989,7 +991,45 @@ public class UVProDropDownReceiver extends DropDownReceiver
         refreshChannelGridFullAsync();
         refreshLogView();
         appendConnectionStatusLog("Plugin panel opened");
+        registerBeaconSettingsReceiver();
         return rootView;
+    }
+
+    private void registerBeaconSettingsReceiver() {
+        if (beaconSettingsReceiver != null) {
+            return;
+        }
+        beaconSettingsReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (intent == null || getMapView() == null) {
+                    return;
+                }
+                if (!UVProMapComponent.ACTION_BEACON_INTERVAL_CHANGED.equals(intent.getAction())) {
+                    return;
+                }
+                getMapView().post(() -> updateStatusFields());
+            }
+        };
+        try {
+            AtakBroadcast.DocumentedIntentFilter filter =
+                    new AtakBroadcast.DocumentedIntentFilter();
+            filter.addAction(UVProMapComponent.ACTION_BEACON_INTERVAL_CHANGED);
+            AtakBroadcast.getInstance().registerReceiver(beaconSettingsReceiver, filter);
+        } catch (Exception ignored) {
+            beaconSettingsReceiver = null;
+        }
+    }
+
+    private void unregisterBeaconSettingsReceiver() {
+        if (beaconSettingsReceiver == null) {
+            return;
+        }
+        try {
+            AtakBroadcast.getInstance().unregisterReceiver(beaconSettingsReceiver);
+        } catch (Exception ignored) {
+        }
+        beaconSettingsReceiver = null;
     }
 
     private void bindViews() {
@@ -5458,7 +5498,10 @@ public class UVProDropDownReceiver extends DropDownReceiver
         updateEncryptionStatus();
 
         // Beacon interval
-        int beaconSec = SettingsFragment.getBeaconIntervalSec(ctx);
+        int beaconSec = SettingsFragment.getBeaconIntervalSec(
+                MapView.getMapView() != null
+                        ? MapView.getMapView().getContext()
+                        : ctx);
         if (beaconIntervalText != null) {
             beaconIntervalText.setText(beaconSec + "s");
         }
@@ -9075,5 +9118,6 @@ public class UVProDropDownReceiver extends DropDownReceiver
             repeaterLoadFocusAnimator = null;
         }
         clearMeshContactChatMode();
+        unregisterBeaconSettingsReceiver();
     }
 }

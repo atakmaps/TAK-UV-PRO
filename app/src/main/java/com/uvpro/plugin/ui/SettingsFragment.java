@@ -393,6 +393,8 @@ public class SettingsFragment extends PluginPreferenceFragment
         if (!(pref instanceof EditTextPreference)) {
             return;
         }
+        pref.setPersistent(false);
+        syncEditTextPreferenceFromAtak(key);
         pref.setOnPreferenceChangeListener((preference, newValue) -> {
             String text = newValue != null ? newValue.toString().trim() : "";
             if (uppercase) {
@@ -412,6 +414,8 @@ public class SettingsFragment extends PluginPreferenceFragment
         if (!(pref instanceof ListPreference)) {
             return;
         }
+        pref.setPersistent(false);
+        syncListPreferenceFromAtak(key, defaultStringForPreferenceKey(key));
         pref.setOnPreferenceChangeListener((preference, newValue) -> {
             String value = newValue != null ? newValue.toString() : "";
             persistStringPrefToAtak(key, value);
@@ -439,7 +443,7 @@ public class SettingsFragment extends PluginPreferenceFragment
         if (PREF_APRS_CALLSIGN.equals(key)) {
             value = value.toUpperCase(java.util.Locale.US);
         }
-        getPrefs(ctx).edit().putString(key, value).apply();
+        getPrefs(ctx).edit().putString(key, value).commit();
     }
 
     private void persistBooleanPrefToAtak(String key, boolean value) {
@@ -739,6 +743,38 @@ public class SettingsFragment extends PluginPreferenceFragment
         if (list != null) {
             list.post(this::applyRowStyles);
         }
+    }
+
+    private static String defaultStringForPreferenceKey(String key) {
+        if (PREF_BEACON_INTERVAL.equals(key)) {
+            return DEFAULT_BEACON_INTERVAL;
+        }
+        if (PREF_RETRY_INTERVAL_MIN.equals(key)) {
+            return DEFAULT_RETRY_INTERVAL_MIN;
+        }
+        if (PREF_RETRY_MAX.equals(key)) {
+            return DEFAULT_RETRY_MAX;
+        }
+        if (PREF_APRS_SSID.equals(key)) {
+            return DEFAULT_APRS_SSID;
+        }
+        return "";
+    }
+
+    private String readStringPrefFromAtak(String key, String defaultValue) {
+        Context ctx = resolveSettingsContext();
+        if (ctx == null) {
+            return defaultValue;
+        }
+        return getPrefs(ctx).getString(key, defaultValue);
+    }
+
+    private void syncListPreferenceFromAtak(String key, String defaultValue) {
+        setListPreferenceValue(key, readStringPrefFromAtak(key, defaultValue));
+    }
+
+    private void syncEditTextPreferenceFromAtak(String key) {
+        setEditTextPreferenceText(key, readStringPrefFromAtak(key, ""));
     }
 
     private void setListPreferenceValue(String key, String value) {
@@ -2985,19 +3021,8 @@ public class SettingsFragment extends PluginPreferenceFragment
         syncSmartBeaconPreferenceValues();
     }
 
-    /** Flush UI preference writes into ATAK store (covers Pan widgets that skip listeners). */
+    /** Flush ATAK-backed smart beacon params (Pan widgets may skip listeners). */
     private void syncAllPreferencesToAtak() {
-        SharedPreferences ui = getPreferenceManager().getSharedPreferences();
-        if (ui == null) {
-            return;
-        }
-        for (String key : MIRROR_STRING_PREF_KEYS) {
-            if (ui.contains(key)) {
-                mirrorPreferenceToAtak(ui, key);
-            }
-        }
-        // Checkbox prefs are written directly to ATAK in wireCheckBoxPreference; mirroring
-        // the fragment UI store on pause can overwrite ATAK with stale false.
         Context ctx = resolveSettingsContext();
         if (ctx != null) {
             persistSmartBeaconFromPreferences(getPrefs(ctx));
@@ -4042,7 +4067,7 @@ public class SettingsFragment extends PluginPreferenceFragment
         }
         getPrefs(context).edit()
                 .putString(PREF_BEACON_INTERVAL, String.valueOf(seconds))
-                .apply();
+                .commit();
         try {
             AtakBroadcast.getInstance().sendBroadcast(
                     new android.content.Intent(UVProMapComponent.ACTION_BEACON_INTERVAL_CHANGED));
