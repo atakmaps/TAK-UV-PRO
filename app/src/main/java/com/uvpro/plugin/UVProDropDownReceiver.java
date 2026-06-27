@@ -7638,7 +7638,7 @@ public class UVProDropDownReceiver extends DropDownReceiver
             return false;
         }
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(ctx);
-        return prefs.getBoolean(PREF_ATAK_WIFI_TRANSMIT, false);
+        return prefs.getBoolean(PREF_ATAK_WIFI_TRANSMIT, true);
     }
 
     private void setWifiTransmitPreference(boolean enabled) {

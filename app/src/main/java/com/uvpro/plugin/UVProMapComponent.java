@@ -262,7 +262,7 @@ try {
         try {
             cotBridge.setWifiTransmitEnabled(
                     PreferenceManager.getDefaultSharedPreferences(view.getContext())
-                            .getBoolean("uvpro_atak_wifi_transmit", false));
+                            .getBoolean("uvpro_atak_wifi_transmit", true));
         } catch (Exception ignored) {
         }
         cotBridge.setLocalCallsign(callsign);
@@ -2747,6 +2747,31 @@ try {
         BtConnectionManager active;
         if (strictPreferred) {
             active = resolveStrictPreferredTransport(preferMesh, preferUvpro);
+            if (active == null || !active.isConnected()) {
+                // Connectivity may have switched live toggles (e.g. mesh-only) while explicit
+                // preferred transport pref still says uvpro — fall back like manual TX.
+                boolean toggleMesh = false;
+                boolean toggleUv = false;
+                try {
+                    Context ctx = getBeaconPrefsContext();
+                    if (ctx != null) {
+                        SharedPreferences prefs =
+                                PreferenceManager.getDefaultSharedPreferences(ctx);
+                        toggleMesh = prefs.getBoolean(PREF_ATAK_MESHCORE_TRANSMIT, false);
+                        toggleUv = prefs.getBoolean(
+                                com.uvpro.plugin.ui.SettingsFragment.PREF_ATAK_UVPRO_TRANSMIT,
+                                false);
+                    }
+                } catch (Exception ignored) {
+                }
+                active = com.uvpro.plugin.bluetooth.TransmitTransportResolver.resolve(
+                        toggleMesh,
+                        toggleUv,
+                        meshBtConnectionManager,
+                        btConnectionManager);
+                Log.d(TAG, "Beacon transport fallback: explicit preferred not connected"
+                        + " (toggleMesh=" + toggleMesh + " toggleUv=" + toggleUv + ")");
+            }
         } else {
             active = com.uvpro.plugin.bluetooth.TransmitTransportResolver.resolve(
                     preferMesh,
