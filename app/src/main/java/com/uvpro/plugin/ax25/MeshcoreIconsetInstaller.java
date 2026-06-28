@@ -110,6 +110,10 @@ public final class MeshcoreIconsetInstaller {
             return false;
         }
         File outFile = new File(importDir, ICONSET_FILENAME);
+        if (outFile.isFile() && outFile.length() > 0L) {
+            Log.i(TAG, "MeshCore iconset already staged: " + outFile.getAbsolutePath());
+            return true;
+        }
         InputStream in = null;
         FileOutputStream out = null;
         try {

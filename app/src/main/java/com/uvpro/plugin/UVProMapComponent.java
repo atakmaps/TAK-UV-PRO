@@ -2875,6 +2875,11 @@ try {
         return RadioPositionFix.isValidCoordinate(gp.getLatitude(), gp.getLongitude());
     }
 
+    /** Defer iconset auto-import until ATAK finishes cold start (avoids UI deadlock). */
+    private static final long ICONSET_IMPORT_START_DELAY_MS = 10_000L;
+    /** Poll until each iconset lands in iconsets.sqlite before starting the next. */
+    private static final long ICONSET_IMPORT_RETRY_MS = 15_000L;
+
     private void startAprsIconsetReminder(Context pluginCtx, Context uiCtx) {
         if (iconsetReminderHandler != null && iconsetReminderRunnable != null) {
             iconsetReminderHandler.removeCallbacks(iconsetReminderRunnable);
@@ -2885,15 +2890,23 @@ try {
             public void run() {
                 boolean aprsMissing = AprsIconsetInstaller.ensureStagedAndPromptIfMissing(
                         pluginCtx, uiCtx);
-                boolean meshcoreMissing = MeshcoreIconsetInstaller.ensureStagedAndPromptIfMissing(
-                        pluginCtx, uiCtx);
+                boolean meshcoreMissing = false;
+                // Serialize imports: firing two ADD_ICONSET broadcasts during cold start can
+                // hang ATAK on slower devices (manual Point Dropper import one-at-a-time works).
+                if (!aprsMissing) {
+                    meshcoreMissing = MeshcoreIconsetInstaller.ensureStagedAndPromptIfMissing(
+                            pluginCtx, uiCtx);
+                }
                 if ((aprsMissing || meshcoreMissing) && iconsetReminderHandler != null) {
-                    // Persistent guidance while missing, throttled toast inside installer.
-                    iconsetReminderHandler.postDelayed(this, 15000L);
+                    iconsetReminderHandler.postDelayed(this, ICONSET_IMPORT_RETRY_MS);
                 }
             }
         };
-        iconsetReminderHandler.post(iconsetReminderRunnable);
+        if (mapView != null) {
+            mapView.postDelayed(iconsetReminderRunnable, ICONSET_IMPORT_START_DELAY_MS);
+        } else {
+            iconsetReminderHandler.postDelayed(iconsetReminderRunnable, ICONSET_IMPORT_START_DELAY_MS);
+        }
     }
 
     /**
