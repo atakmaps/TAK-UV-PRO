@@ -9,7 +9,7 @@ for off-grid team communication via UV-PRO radios.
 
 - **JDK 17** (Eclipse Temurin recommended)
 - **Android SDK** (API 35)
-- **ATAK-CIV 5.5.1 SDK** — download from [TAK Product Center](https://tak.gov) (free registration)
+- **ATAK-CIV 5.6.0 SDK** — `./tools/use-atak-sdk.sh 5.6.0` (see README)
 
 ### Setup
 
@@ -33,7 +33,7 @@ These are **blocking** requirements for feature merges. If any item fails or is 
   - `app/src/main/assets/atakmaps-ca.p12`
   - `app/src/main/assets/isrg-root-x1.pem`
   - `app/src/main/res/values/strings.xml` key `uvpro_trust_bundle_p12_key`
-- Do not rename update-server preference keys without ATAK 5.5.1 validation.
+- Do not rename update-server preference keys without ATAK 5.6.0 validation.
 - Do not ship ProGuard/R8 changes that break reflection or strip `com.uvpro.plugin.**` keeps.
 - Run and pass post-merge validation (below) on clean ATAK-CIV state.
 
@@ -52,7 +52,7 @@ These are **blocking** requirements for feature merges. If any item fails or is 
   - `app/src/main/assets/isrg-root-x1.pem`
 - Required key material in `app/src/main/res/values/strings.xml`:
   - `uvpro_trust_bundle_p12_key` (Base64; decoded at runtime by design).
-- `configureUpdateServerStatic` writes ATAK prefs such as `atakUpdateServerUrl`, `appMgmtUpdateServerUrl`, update-server toggles, and `updateServerCaLocation`; do not rename keys without testing on ATAK 5.5.1.
+- `configureUpdateServerStatic` writes ATAK prefs such as `atakUpdateServerUrl`, `appMgmtUpdateServerUrl`, update-server toggles, and `updateServerCaLocation`; do not rename keys without testing on ATAK 5.6.0.
 
 #### R8 / ProGuard + toolbar notes
 
@@ -62,7 +62,7 @@ These are **blocking** requirements for feature merges. If any item fails or is 
 #### TPC submission checklist
 
 - Version: bump `ext.PLUGIN_VERSION` in root `build.gradle` only (`app/build.gradle` derives `versionCode`).
-- Packaging: run `./tools/package-submission.sh` (uses `git archive` to produce `UV-PRO-<ver>-ATAK-5.5.1-source.zip`).
+- Packaging: run `./tools/build-submission-zips.sh` or `./tools/package-submission.sh` (produces `UV-PRO-<ver>-ATAK-5.6.0-source.zip`).
 - Commit all files you want in the zip; uncommitted changes are excluded.
 - Keep `gradle/takdev/atak-gradle-takdev.jar` in-repo for offline TPC builds.
 - Run `./gradlew assembleCivRelease` first if you want local APK copied beside zip; ship the TPC-signed APK publicly.

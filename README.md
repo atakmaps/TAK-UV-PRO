@@ -4,7 +4,7 @@ A free, open-source ATAK plugin that connects UV-PRO radios to the Android Team 
 
 - Package: `com.uvpro.plugin`
 - Current version: `2.0.14`
-- Target ATAK: `5.5.1` and `5.6.0` (CIV; build with `-Patak.version=5.6.0` for 5.6 installs)
+- Target ATAK: **5.6.0** CIV only
 
 ## Features
 

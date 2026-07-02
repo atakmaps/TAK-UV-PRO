@@ -3,7 +3,7 @@
 ## Project overview
 
 UV-PRO is an Android ATAK plugin (APK) that bridges UV-PRO radios to ATAK over Bluetooth SPP / KISS TNC.
-It is built with the Android Gradle Plugin and the ATAK-CIV 5.5.1 SDK.
+It is built with the Android Gradle Plugin and the ATAK-CIV **5.6.0** SDK.
 
 ## Cursor Cloud specific instructions
 
@@ -13,7 +13,7 @@ It is built with the Android Gradle Plugin and the ATAK-CIV 5.5.1 SDK.
 |------|-----------------|----------------|
 | JDK  | 17              | `/usr/lib/jvm/java-17-openjdk-amd64` |
 | Android SDK | API 35, build-tools 35.0.0 | `/opt/android-sdk` |
-| ATAK-CIV SDK | 5.5.1.x | `app/libs/atak-civ/` (gitignored) |
+| ATAK-CIV SDK | 5.6.0.x | `app/libs/atak-civ/` (gitignored; `./tools/use-atak-sdk.sh 5.6.0`) |
 
 These are **not** installed by the update script (they are system/VM-level one-time installs).
 
@@ -190,8 +190,8 @@ If any item below is uncertain, **stop and do not merge** until verified.
 ### TPC submission zips
 
 - **Version:** Set **`ext.PLUGIN_VERSION`** in **root `build.gradle`** only. **`versionCode`** is derived in **`app/build.gradle`** from that string.
-- **Dual ATAK targets (5.5.1 + 5.6.0)** — default for “ready for zip”: **`./tools/build-submission-zips.sh`** writes both `UV-PRO-<ver>-ATAK-5.5.1-source.zip` and `UV-PRO-<ver>-ATAK-5.6.0-source.zip` under **`Plugins/TAK Submissions/`**. SDK swap via **`./tools/use-atak-sdk.sh`** (5.6 path: `~/Documents/ATAK/Versions/ATAK-CIV-5.6.0.18-SDK`).
-- **Single target:** **`./tools/use-atak-sdk.sh 5.5.1`** (or `5.6.0`), then **`./gradlew assembleCivRelease`** (`-Patak.version=5.6.0` for 5.6), then **`ATAK_VERSION=<ver> ./tools/package-submission.sh`**.
+- **ATAK 5.6.0 only:** **`./tools/build-submission-zips.sh`** writes `UV-PRO-<ver>-ATAK-5.6.0-source.zip` under **`Plugins/TAK Submissions/`**. SDK via **`./tools/use-atak-sdk.sh 5.6.0`** (`~/Documents/ATAK/Versions/ATAK-CIV-5.6.0.18-SDK`, override with `ATAK_560_SDK`).
+- **Manual:** **`./tools/use-atak-sdk.sh 5.6.0`**, then **`./gradlew assembleCivRelease -Patak.version=5.6.0`**, then **`ATAK_VERSION=5.6.0 ./tools/package-submission.sh`**.
 - **`git archive`:** Only **committed** files are included. Uncommitted work is **not** in the zip.
 - **Vendored takdev:** The archive is expected to include **`gradle/takdev/atak-gradle-takdev.jar`** so TPC can build without Artifactory init scripts.
 - **Local APK beside zip:** Each build copies the matching unsigned civ release APK next to its zip. **Field releases** should use the **TPC-signed** APK returned from the portal.
