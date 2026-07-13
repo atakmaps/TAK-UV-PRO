@@ -49,6 +49,8 @@ import com.uvpro.plugin.ui.SettingsFragment;
 import com.uvpro.plugin.UVProContactHandler;
 import com.uvpro.plugin.util.CallsignUtil;
 
+import java.io.File;
+
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -1363,6 +1365,12 @@ public class CotBridge {
             // Mark ALL injected CoT to skip outbound RF relay — prevents the
             // PreSendProcessor from echoing received items back over the air.
             markInboundInjectSkipOutboundRelay(event.getUID());
+            if (GrgSettingsShare.isGrgSettingsCot(event)) {
+                handleInboundGrgSettingsCot(event);
+                maybeRelayInboundRadioCotToTak(event);
+                sendCotAckForInboundEvent(event);
+                return;
+            }
             if (isGeoChatCotType(event.getType())) {
                 deliverInboundGeoChatToAtak(event);
             } else {
@@ -1374,28 +1382,151 @@ public class CotBridge {
                 PingReplyNotifier.maybeNotifyPingReplyFromCot(
                         pingMv.getContext(), event);
             }
-
-            // Send TYPE_COT_ACK back over RF to cancel the sender's retry watchdog.
-            String ackUid = event.getUID();
-            if (ackUid != null && !ackUid.trim().isEmpty()
-                    && btManager != null && btManager.isConnected()) {
-                try {
-                    UVProPacket ackPkt = UVProPacket.createCotAck(ackUid.trim());
-                    byte[] ackBytes = ackPkt.encode();
-                    if (encryptionManager != null && encryptionManager.isEnabled()) {
-                        ackBytes = encryptionManager.encrypt(ackBytes);
-                    }
-                    if (ackBytes != null) {
-                        Ax25Frame ackFrame = Ax25Frame.createUVProFrame(localCallsign, 0, ackBytes);
-                        btManager.sendKissFrame(ackFrame.encode());
-                        Log.d(TAG, "CoT ACK sent uid=" + ackUid.trim());
-                    }
-                } catch (Exception e) {
-                    Log.w(TAG, "Failed to send CoT ACK uid=" + ackUid, e);
-                }
-            }
+            sendCotAckForInboundEvent(event);
         } catch (Exception e) {
             Log.e(TAG, "Error injecting compressed CoT", e);
+        }
+    }
+
+    private void sendCotAckForInboundEvent(CotEvent event) {
+        if (event == null) {
+            return;
+        }
+        String ackUid = event.getUID();
+        if (ackUid == null || ackUid.trim().isEmpty()
+                || btManager == null || !btManager.isConnected()) {
+            return;
+        }
+        try {
+            UVProPacket ackPkt = UVProPacket.createCotAck(ackUid.trim());
+            byte[] ackBytes = ackPkt.encode();
+            if (encryptionManager != null && encryptionManager.isEnabled()) {
+                ackBytes = encryptionManager.encrypt(ackBytes);
+            }
+            if (ackBytes != null) {
+                Ax25Frame ackFrame = Ax25Frame.createUVProFrame(localCallsign, 0, ackBytes);
+                btManager.sendKissFrame(ackFrame.encode());
+                Log.d(TAG, "CoT ACK sent uid=" + ackUid.trim());
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to send CoT ACK uid=" + ackUid, e);
+        }
+    }
+
+    private void handleInboundGrgSettingsCot(CotEvent event) {
+        if (event == null) {
+            return;
+        }
+        String uid = event.getUID();
+        if (!GrgSettingsShare.markReceivedOnce(uid)) {
+            Log.d(TAG, "Duplicate GRG settings CoT ignored uid=" + uid);
+            return;
+        }
+        String json = GrgSettingsShare.extractSettingsJson(event);
+        if (json == null || json.isEmpty()) {
+            Log.w(TAG, "GRG settings CoT missing JSON payload uid=" + uid);
+            return;
+        }
+        try {
+            File saved = GrgSettingsShare.writeReceivedSettings(
+                    json, GrgSettingsShare.extractFilename(event));
+            Log.i(TAG, "GRG settings saved: " + saved.getAbsolutePath());
+            MapView mv = mapView != null ? mapView : MapView.getMapView();
+            if (mv != null) {
+                String path = GrgShareUi.formatUserPath(saved);
+                mv.post(() -> android.widget.Toast.makeText(mv.getContext(),
+                        "GRG settings received — import in GRG Builder:\n" + path,
+                        android.widget.Toast.LENGTH_LONG).show());
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to save inbound GRG settings uid=" + uid, e);
+            MapView mv = mapView != null ? mapView : MapView.getMapView();
+            if (mv != null) {
+                mv.post(() -> android.widget.Toast.makeText(mv.getContext(),
+                        "GRG settings receive failed: " + e.getMessage(),
+                        android.widget.Toast.LENGTH_LONG).show());
+            }
+        }
+    }
+
+    public static final class GrgShareResult {
+        public final boolean success;
+        public final String message;
+
+        public GrgShareResult(boolean success, String message) {
+            this.success = success;
+            this.message = message != null ? message : "";
+        }
+    }
+
+    /**
+     * Send map markers inside the GRG corners, then the settings JSON, to RF contact(s).
+     */
+    public void sendGrgSettingsBundle(java.io.File jsonFile, String[] toUIDs,
+                                      java.util.function.Consumer<GrgShareResult> callback) {
+        new Thread(() -> {
+            GrgShareResult result = sendGrgSettingsBundleInternal(jsonFile, toUIDs);
+            if (callback == null) {
+                return;
+            }
+            MapView mv = mapView != null ? mapView : MapView.getMapView();
+            if (mv != null) {
+                mv.post(() -> callback.accept(result));
+            } else {
+                callback.accept(result);
+            }
+        }, "UVPro-GrgShare").start();
+    }
+
+    private GrgShareResult sendGrgSettingsBundleInternal(java.io.File jsonFile, String[] toUIDs) {
+        if (jsonFile == null || !jsonFile.isFile()) {
+            return new GrgShareResult(false, "GRG settings file not found.");
+        }
+        if (btManager == null || !btManager.isConnected()) {
+            return new GrgShareResult(false, "Radio not connected.");
+        }
+        if (toUIDs == null || toUIDs.length == 0) {
+            return new GrgShareResult(false, "No destination contact.");
+        }
+        if (!com.uvpro.plugin.contacts.ContactReachability
+                .hasAnyRfReachableMapRecipient(toUIDs, this)) {
+            return new GrgShareResult(false, "Contact is not reachable over RF.");
+        }
+        try {
+            String json = GrgSettingsShare.readUtf8File(jsonFile);
+            if (json.isEmpty()) {
+                return new GrgShareResult(false, "GRG settings file is empty.");
+            }
+            MapView mv = mapView != null ? mapView : MapView.getMapView();
+            double[] bounds = GrgSettingsShare.parseCornerBounds(json);
+            int markerCount = 0;
+            if (bounds != null && mv != null) {
+                java.util.List<CotEvent> markers =
+                        GrgSettingsShare.collectMarkerCotsInsideBounds(mv, bounds);
+                for (CotEvent marker : markers) {
+                    CotEvent directed = CotBuilder.stampDirectedDestinations(marker, toUIDs);
+                    sendCotOverRadio(directed != null ? directed : marker);
+                    markerCount++;
+                    try {
+                        Thread.sleep(GrgSettingsShare.markerSendGapMs());
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+            CotEvent settingsCot = GrgSettingsShare.buildGrgSettingsCot(
+                    json, jsonFile.getName(), mv);
+            if (settingsCot == null) {
+                return new GrgShareResult(false, "Failed to build GRG settings CoT.");
+            }
+            CotEvent directedSettings = CotBuilder.stampDirectedDestinations(settingsCot, toUIDs);
+            sendCotOverRadio(directedSettings != null ? directedSettings : settingsCot);
+            return new GrgShareResult(true,
+                    "Sent " + markerCount + " point(s) + GRG settings to contact.");
+        } catch (Exception e) {
+            Log.e(TAG, "sendGrgSettingsBundle failed", e);
+            return new GrgShareResult(false, "GRG share failed: " + e.getMessage());
         }
     }
 

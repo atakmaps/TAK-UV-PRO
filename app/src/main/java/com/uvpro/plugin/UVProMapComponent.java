@@ -259,6 +259,7 @@ try {
         // Initialize sub-systems in dependency order:
         // 1. CotBridge (needs plugin context + MapView)
         cotBridge = new CotBridge(context, view);
+        com.uvpro.plugin.cot.GrgShareUi.setCotBridge(cotBridge);
         try {
             cotBridge.setWifiTransmitEnabled(
                     PreferenceManager.getDefaultSharedPreferences(view.getContext())

@@ -9,6 +9,7 @@ import com.atakmap.android.contact.ContactConnectorManager;
 import com.atakmap.android.contact.Contacts;
 import com.atakmap.android.contact.IndividualContact;
 import com.atakmap.android.maps.MapItem;
+import com.atakmap.android.maps.MapView;
 import com.atakmap.android.contact.PluginConnector;
 import com.atakmap.android.preference.AtakPreferences;
 import com.atakmap.comms.NetConnectString;
@@ -18,9 +19,11 @@ import com.uvpro.plugin.bluetooth.MeshBtConnectionManager;
 import com.uvpro.plugin.bluetooth.MeshDeviceContactCache;
 import com.uvpro.plugin.protocol.UVProMeshServices;
 import com.uvpro.plugin.contacts.MeshFavoriteConnector;
+import com.uvpro.plugin.contacts.MeshGrgShareConnector;
 import com.uvpro.plugin.contacts.MeshRequestPositionConnector;
 import com.uvpro.plugin.contacts.MeshSendMessageConnector;
 import com.uvpro.plugin.contacts.PositionOnlyConnector;
+import com.uvpro.plugin.cot.GrgShareUi;
 import com.uvpro.plugin.mesh.MeshNodeCachePolicy;
 import com.uvpro.plugin.protocol.PositionRequester;
 import com.uvpro.plugin.util.CallsignUtil;
@@ -115,6 +118,7 @@ public class UVProContactHandler extends
                 || FileSystemUtils.isEquals(type, GeoChatConnector.CONNECTOR_TYPE)
                 || FileSystemUtils.isEquals(type, MeshFavoriteConnector.CONNECTOR_TYPE)
                 || FileSystemUtils.isEquals(type, MeshSendMessageConnector.CONNECTOR_TYPE)
+                || FileSystemUtils.isEquals(type, MeshGrgShareConnector.CONNECTOR_TYPE)
                 || FileSystemUtils.isEquals(type, MeshRequestPositionConnector.CONNECTOR_TYPE);
     }
 
@@ -173,6 +177,13 @@ public class UVProContactHandler extends
                         ok ? "Ping sent to " + atakTarget
                                 : "Ping failed (" + failReason + ")",
                         Toast.LENGTH_LONG).show();
+                return true;
+            }
+
+            if (FileSystemUtils.isEquals(connectorType, MeshGrgShareConnector.CONNECTOR_TYPE)) {
+                MapView mv = com.atakmap.android.maps.MapView.getMapView();
+                Context ctx = mv != null ? mv.getContext() : pluginContext;
+                GrgShareUi.showShareDialog(ctx, ic);
                 return true;
             }
 
@@ -235,6 +246,7 @@ public class UVProContactHandler extends
             if (ic.getConnector(MeshSendMessageConnector.CONNECTOR_TYPE) == null) {
                 ic.addConnector(new MeshSendMessageConnector());
             }
+            ensureGrgShareConnectorForContact(ic);
             ensurePingConnectorForContact(ic);
             writeDefaultConnectorPref(u, GeoChatConnector.CONNECTOR_TYPE);
             if (u.startsWith("MESHCORE-NODE-") || u.startsWith("MESHCORE-RPTR-")) {
@@ -354,6 +366,7 @@ public class UVProContactHandler extends
             if (contact.getConnector(MeshSendMessageConnector.CONNECTOR_TYPE) == null) {
                 contact.addConnector(new MeshSendMessageConnector());
             }
+            ensureGrgShareConnectorForContact(contact);
             ensurePingConnectorForContact(contact);
             if (contact.getConnector(GeoChatConnector.CONNECTOR_TYPE) == null) {
                 contact.addConnector(new GeoChatConnector(
@@ -363,6 +376,26 @@ public class UVProContactHandler extends
             contact.dispatchChangeEvent();
         } catch (Exception e) {
             Log.w("UVPro.Handler", "applyMeshContactConnectors failed", e);
+        }
+    }
+
+    /** Adds Share GRG connector for RF-capable individual contacts. */
+    public static void ensureGrgShareConnectorForContact(IndividualContact contact) {
+        if (contact == null) {
+            return;
+        }
+        if (contact.getUID() != null && contact.getUID().startsWith(MESH_RPTR_UID_PREFIX)) {
+            return;
+        }
+        if (resolvePingTargetCallsign(contact).isEmpty()) {
+            return;
+        }
+        try {
+            if (contact.getConnector(MeshGrgShareConnector.CONNECTOR_TYPE) == null) {
+                contact.addConnector(new MeshGrgShareConnector());
+            }
+        } catch (Exception e) {
+            Log.w("UVPro.Handler", "ensureGrgShareConnectorForContact failed", e);
         }
     }
 
@@ -494,7 +527,9 @@ public class UVProContactHandler extends
             }
             for (Contact c : all) {
                 if (c instanceof IndividualContact) {
-                    ensurePingConnectorForContact((IndividualContact) c);
+                    IndividualContact ic = (IndividualContact) c;
+                    ensurePingConnectorForContact(ic);
+                    ensureGrgShareConnectorForContact(ic);
                 }
             }
         } catch (Exception e) {
@@ -597,6 +632,7 @@ public class UVProContactHandler extends
             if (contact.getConnector(MeshSendMessageConnector.CONNECTOR_TYPE) == null) {
                 contact.addConnector(new MeshSendMessageConnector());
             }
+            ensureGrgShareConnectorForContact(contact);
             if (contact.getConnector(MeshRequestPositionConnector.CONNECTOR_TYPE) == null) {
                 contact.addConnector(new MeshRequestPositionConnector());
             }
