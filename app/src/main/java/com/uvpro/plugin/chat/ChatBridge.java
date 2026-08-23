@@ -222,6 +222,7 @@ public class ChatBridge {
             new android.os.Handler(android.os.Looper.getMainLooper());
     private final ConcurrentHashMap<String, Runnable> pendingMergeByCallsign =
             new ConcurrentHashMap<>();
+    private Runnable pendingCollapseAllTask;
 
     public ChatBridge(Context pluginContext, MapView mapView) {
         this.pluginContext = pluginContext;
@@ -365,19 +366,34 @@ public class ChatBridge {
                     if ((senderUid == null || senderUid.isEmpty()) && fromCallsign != null) {
                         senderUid = syntheticAndroidUid(fromCallsign);
                     }
-                    ensurePluginChatContact(fromCallsign, senderUid);
-                    collapseDuplicateContactsForCallsign(fromCallsign, senderUid);
-                    cotBridge.registerBtechContactUid(senderUid);
-                    if (fromCallsign != null && !fromCallsign.trim().isEmpty()) {
-                        cotBridge.registerBtechContactId(fromCallsign, senderUid);
-                        String radioTrunc = CallsignUtil.toRadioCallsign(fromCallsign);
-                        if (radioTrunc != null && !radioTrunc.isEmpty()
-                                && !radioTrunc.equalsIgnoreCase(fromCallsign.trim())) {
-                            cotBridge.registerBtechContactId(radioTrunc, senderUid);
+                    String canonicalUid = ensurePluginChatContact(fromCallsign, senderUid);
+                    if (canonicalUid == null || canonicalUid.isEmpty()) {
+                        canonicalUid = senderUid;
+                    } else {
+                        senderUid = canonicalUid;
+                    }
+                    collapseDuplicateContactsForCallsign(fromCallsign, null);
+                    if (canonicalUid != null && !canonicalUid.isEmpty()) {
+                        cotBridge.registerBtechContactUid(canonicalUid);
+                        if (senderUid != null && !senderUid.isEmpty()
+                                && !senderUid.equalsIgnoreCase(canonicalUid)) {
+                            cotBridge.registerBtechContactUidAlias(senderUid, canonicalUid);
+                        }
+                        if (fromCallsign != null && !fromCallsign.trim().isEmpty()) {
+                            cotBridge.registerBtechContactId(fromCallsign, canonicalUid);
+                            String radioTrunc = CallsignUtil.toRadioCallsign(fromCallsign);
+                            if (radioTrunc != null && !radioTrunc.isEmpty()
+                                    && !radioTrunc.equalsIgnoreCase(fromCallsign.trim())) {
+                                cotBridge.registerBtechContactId(radioTrunc, canonicalUid);
+                            }
                         }
                     }
                     if (lineSenderUid != null && !lineSenderUid.isEmpty()) {
-                        cotBridge.registerBtechContactUid(lineSenderUid);
+                        String lineCanonical = cotBridge.resolveBtechCanonicalUid(lineSenderUid);
+                        cotBridge.registerBtechContactUid(lineCanonical);
+                        if (!lineSenderUid.equalsIgnoreCase(lineCanonical)) {
+                            cotBridge.registerBtechContactUidAlias(lineSenderUid, lineCanonical);
+                        }
                     }
                 }
             }
@@ -791,6 +807,12 @@ public class ChatBridge {
 
         out.add(base);
 
+        String alpha = CallsignUtil.alphanumericCallsignKey(base);
+        if (!alpha.isEmpty()) {
+            out.add(alpha);
+            out.add(ANDROID_UID_PREFIX + alpha);
+        }
+
         // Avoid ambiguous root-only matches (e.g. JESTER_15 vs JESTER_25).
         if (base.indexOf('-') < 0 && base.indexOf('_') < 0) {
             String noSuffix = base.replaceFirst("[-_].*$", "");
@@ -943,6 +965,17 @@ public class ChatBridge {
             Contact existing = contacts.getContactByUuid(uid);
             if (existing instanceof IndividualContact) {
                 return ((IndividualContact) existing).getUID();
+            }
+            if (!callsign.isEmpty()) {
+                collapseDuplicateContactsForCallsign(callsign, null);
+                Contact merged = findContactByCallsignVariants(contacts, callsign);
+                if (merged instanceof IndividualContact) {
+                    IndividualContact ic = (IndividualContact) merged;
+                    preferNativeContactAction(ic);
+                    removeDuplicateUidContact(contacts, uid, ic.getUID());
+                    finishContactMerge(ic, callsign);
+                    return ic.getUID();
+                }
             }
             if (existing != null) {
                 Log.w(TAG, "Cannot ensure plugin chat contact; non-individual UID exists: " + uid);
@@ -1454,8 +1487,10 @@ public class ChatBridge {
             for (IndividualContact ic : candidates) {
                 int score = scorePreferredNativeContact(ic);
                 String uid = ic.getUID() != null ? ic.getUID().trim().toUpperCase(Locale.US) : "";
+                String contactName = ic.getName() != null ? ic.getName().trim() : rawCallsign;
                 if (keepUidHint != null && !keepUidHint.trim().isEmpty()
-                        && uid.equalsIgnoreCase(keepUidHint.trim())) {
+                        && uid.equalsIgnoreCase(keepUidHint.trim())
+                        && !isSyntheticCallsignUid(uid, contactName)) {
                     score += 200;
                 }
                 if (score > bestScore) {
@@ -1474,10 +1509,45 @@ public class ChatBridge {
                 }
                 Log.d(TAG, "collapseDuplicate removing uid=" + ic.getUID()
                         + " keeping uid=" + keepUid + " callsign=" + rawCallsign);
+                propagateTransportMarksFromDuplicate(keep, ic, rawCallsign);
                 contacts.removeContact(ic);
             }
             finishContactMerge(keep, rawCallsign);
         } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * When collapsing duplicate rows, carry RF transport marks and wire UID aliases onto the
+     * keeper so chat/CoT routing still sees both Wi‑Fi and RF paths after merge.
+     */
+    private static void propagateTransportMarksFromDuplicate(IndividualContact keep,
+                                                             IndividualContact removed,
+                                                             String callsignRaw) {
+        if (keep == null || removed == null) {
+            return;
+        }
+        CotBridge bridge = mergeRoutingBridge;
+        if (bridge == null) {
+            return;
+        }
+        String keepUid = keep.getUID();
+        String removedUid = removed.getUID();
+        if (keepUid == null || removedUid == null) {
+            return;
+        }
+        if (bridge.isRfNativeContact(removedUid)) {
+            bridge.markRfNativeContact(keepUid);
+        }
+        String removedName = removed.getName();
+        if (removedName != null && !removedName.trim().isEmpty()) {
+            bridge.markRfHeardCallsign(removedName.trim());
+        }
+        if (callsignRaw != null && !callsignRaw.trim().isEmpty()) {
+            bridge.markRfHeardCallsign(callsignRaw.trim());
+        }
+        if (!removedUid.equalsIgnoreCase(keepUid)) {
+            bridge.registerBtechContactUidAlias(removedUid, keepUid);
         }
     }
 
@@ -1542,7 +1612,7 @@ public class ChatBridge {
             }
             Runnable task = () -> {
                 pendingMergeByCallsign.remove(key);
-                collapseDuplicateContactsForCallsign(name, ic.getUID());
+                collapseDuplicateContactsForCallsign(name, null);
                 try {
                     IndividualContact merged = resolveMergedContact(name, contactUid.trim());
                     if (merged != null) {
@@ -1565,6 +1635,18 @@ public class ChatBridge {
         } catch (Exception e) {
             Log.w(TAG, "scheduleContactMergeForNetworkContact failed uid=" + contactUid, e);
         }
+    }
+
+    /** Debounced full-list merge when ATAK adds contacts (e.g. Wi‑Fi SA after RF row exists). */
+    private void scheduleCollapseAllCallsignDuplicatesDebounced() {
+        if (pendingCollapseAllTask != null) {
+            contactMergeHandler.removeCallbacks(pendingCollapseAllTask);
+        }
+        pendingCollapseAllTask = () -> {
+            pendingCollapseAllTask = null;
+            collapseAllCallsignAliasDuplicates();
+        };
+        contactMergeHandler.postDelayed(pendingCollapseAllTask, 350L);
     }
 
     private static IndividualContact resolveMergedContact(String callsignRaw, String preferredUid) {
@@ -2097,6 +2179,7 @@ public class ChatBridge {
             contactsUnreadSyncListener = new Contacts.OnContactsChangedListener() {
                 @Override
                 public void onContactsSizeChange(Contacts contacts) {
+                    scheduleCollapseAllCallsignDuplicatesDebounced();
                 }
 
                 @Override

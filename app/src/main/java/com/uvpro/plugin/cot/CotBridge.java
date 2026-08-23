@@ -162,6 +162,12 @@ public class CotBridge {
      */
     private final Map<String, String> btechIdToUid = new ConcurrentHashMap<>();
 
+    /**
+     * Alternate wire UIDs (e.g. {@code ANDROID-DEV_ONE}) mapped to the merged keeper UID
+     * (often opaque Wi‑Fi {@code ANDROID-…}) so RF routing still recognizes both forms.
+     */
+    private final Map<String, String> btechUidAliases = new ConcurrentHashMap<>();
+
     private final RfSlottedCoTScheduler slottedCoTScheduler = new RfSlottedCoTScheduler();
 
     /** Minimum interval between SA Relay broadcasts onto RF (WiFi/TAK → UV-PRO/Mesh). */
@@ -439,7 +445,36 @@ public class CotBridge {
      */
     public void registerBtechContactUid(String uid) {
         if (uid == null) return;
-        btechContactUids.add(uid);
+        btechContactUids.add(uid.trim());
+    }
+
+    /**
+     * Register a secondary UID (typically synthetic {@code ANDROID-<CALLSIGN>}) that routes
+     * to the merged keeper without creating a second Contacts row.
+     */
+    public void registerBtechContactUidAlias(String aliasUid, String canonicalUid) {
+        if (aliasUid == null || canonicalUid == null) {
+            return;
+        }
+        String alias = aliasUid.trim();
+        String canonical = canonicalUid.trim();
+        if (alias.isEmpty() || canonical.isEmpty() || alias.equalsIgnoreCase(canonical)) {
+            return;
+        }
+        btechUidAliases.put(alias.toUpperCase(Locale.US), canonical);
+        btechContactUids.add(alias);
+    }
+
+    /**
+     * Resolve a wire UID to the merged keeper when an alias was registered during contact merge.
+     */
+    public String resolveBtechCanonicalUid(String uid) {
+        if (uid == null || uid.trim().isEmpty()) {
+            return null;
+        }
+        String trimmed = uid.trim();
+        String alias = btechUidAliases.get(trimmed.toUpperCase(Locale.US));
+        return alias != null ? alias : trimmed;
     }
 
     /**
@@ -537,21 +572,31 @@ public class CotBridge {
         if (uid.toUpperCase(Locale.US).startsWith(ANDROID_UID_PREFIX)) {
             bareUid = uid.substring(ANDROID_UID_PREFIX.length());
         }
-        // Opaque Wi-Fi device UIDs are map/chat identities, not RF plugin contact UIDs.
+        String keeperUid = uid.trim();
+        // Opaque Wi-Fi device UIDs are map/chat identities, not RF wire UIDs — register
+        // callsign aliases and synthetic ANDROID-<CALLSIGN> forms instead.
         if (bareUid == null || !isOpaqueDeviceId(bareUid)) {
-            registerBtechContactUid(uid.trim());
+            registerBtechContactUid(keeperUid);
         }
         String name = contact.getName();
         if (name != null && !name.trim().isEmpty()) {
-            registerBtechContactId(name.trim(), uid);
-            String radio = com.uvpro.plugin.util.CallsignUtil.toRadioCallsign(name.trim());
+            String normalized = name.trim().toUpperCase(Locale.US);
+            registerBtechContactId(normalized, keeperUid);
+            String syntheticUid = ANDROID_UID_PREFIX + normalized;
+            if (!syntheticUid.equalsIgnoreCase(keeperUid)) {
+                registerBtechContactUidAlias(syntheticUid, keeperUid);
+            }
+            String radio = com.uvpro.plugin.util.CallsignUtil.toRadioCallsign(normalized);
             if (radio != null && !radio.trim().isEmpty()
-                    && !radio.equalsIgnoreCase(name.trim())) {
-                registerBtechContactId(radio.trim(), uid);
+                    && !radio.equalsIgnoreCase(normalized)) {
+                registerBtechContactId(radio.trim(), keeperUid);
             }
         }
         if (bareUid != null && !bareUid.isEmpty() && !isOpaqueDeviceId(bareUid)) {
-            registerBtechContactId(bareUid, uid);
+            registerBtechContactId(bareUid, keeperUid);
+        }
+        if (name != null && !name.trim().isEmpty() && isRfHeardCallsign(name.trim())) {
+            markRfNativeContact(keeperUid);
         }
     }
 
@@ -601,7 +646,15 @@ public class CotBridge {
     }
 
     public boolean isBtechContactUid(String uid) {
-        return uid != null && btechContactUids.contains(uid);
+        if (uid == null || uid.trim().isEmpty()) {
+            return false;
+        }
+        String trimmed = uid.trim();
+        if (btechContactUids.contains(trimmed)) {
+            return true;
+        }
+        String canonical = btechUidAliases.get(trimmed.toUpperCase(Locale.US));
+        return canonical != null && btechContactUids.contains(canonical);
     }
 
     public boolean isWifiNativeContact(String uid) {
@@ -790,46 +843,20 @@ public class CotBridge {
         if (loc.isEmpty()) {
             return false;
         }
-        if (loc.equalsIgnoreCase(r)) {
+        if (CallsignUtil.isSameCallsignAlias(loc, r)) {
             return true;
-        }
-        try {
-            if (CallsignUtil.toRadioCallsign(loc).equalsIgnoreCase(r)) {
-                return true;
-            }
-        } catch (Exception ignored) {
         }
         try {
             if (mapView != null) {
                 com.atakmap.android.maps.PointMapItem selfMarker = mapView.getSelfMarker();
                 if (selfMarker != null) {
                     String m = selfMarker.getMetaString("callsign", null);
-                    if (m != null) {
-                        if (m.trim().equalsIgnoreCase(r)) {
-                            return true;
-                        }
-                        try {
-                            if (CallsignUtil.toRadioCallsign(m.trim()).equalsIgnoreCase(r)) {
-                                return true;
-                            }
-                        } catch (Exception ignored2) {
-                        }
+                    if (m != null && CallsignUtil.isSameCallsignAlias(m.trim(), r)) {
+                        return true;
                     }
                 }
             }
         } catch (Exception ignored) {
-        }
-        if (r.startsWith(ANDROID_UID_PREFIX)) {
-            String bare = r.substring(ANDROID_UID_PREFIX.length());
-            if (loc.equalsIgnoreCase(bare)) {
-                return true;
-            }
-            try {
-                if (CallsignUtil.toRadioCallsign(loc).equalsIgnoreCase(bare)) {
-                    return true;
-                }
-            } catch (Exception ignored) {
-            }
         }
         return false;
     }
@@ -944,6 +971,12 @@ public class CotBridge {
         if (id == null) return null;
         String key = id.trim().toUpperCase();
         if (key.isEmpty()) return null;
+        if (key.startsWith(ANDROID_UID_PREFIX)) {
+            String aliasCanonical = btechUidAliases.get(key);
+            if (aliasCanonical != null) {
+                return aliasCanonical;
+            }
+        }
         if (isOpaqueDeviceId(key)) return null;
         String mapped = btechIdToUid.get(key);
         if (mapped != null) return mapped;
@@ -3702,6 +3735,7 @@ public class CotBridge {
         pendingOutboundCots.clear();
         btechContactUids.clear();
         btechIdToUid.clear();
+        btechUidAliases.clear();
         saRelayLastSentByUid.clear();
         recentLocalRelayKeys.clear();
         Log.d(TAG, "CotBridge disposed");

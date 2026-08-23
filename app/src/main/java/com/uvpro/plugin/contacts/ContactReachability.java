@@ -120,10 +120,22 @@ public final class ContactReachability {
                 }
             } catch (Exception ignored) {
             }
-            // Plugin-registered UIDs can be WiFi/TAK-only; only trust the set when
-            // the UID does not look like an opaque ATAK device id (JJ-4/JJ-5 pattern).
-            if (bridge.isBtechContactUid(trimmed) && !isOpaqueWifiDeviceUid(trimmed)) {
-                return true;
+            // Plugin-registered UIDs: opaque Wi‑Fi keepers are RF-reachable when heard on radio.
+            if (bridge.isBtechContactUid(trimmed)) {
+                if (!isOpaqueWifiDeviceUid(trimmed)) {
+                    return true;
+                }
+                if (bridge.isRfNativeContact(trimmed)) {
+                    return true;
+                }
+                try {
+                    Contact byUid = Contacts.getInstance().getContactByUuid(trimmed);
+                    if (byUid instanceof IndividualContact
+                            && hasRfChatPath((IndividualContact) byUid, bridge)) {
+                        return true;
+                    }
+                } catch (Exception ignored) {
+                }
             }
         }
         return false;
@@ -150,6 +162,10 @@ public final class ContactReachability {
         if (bridge.isRfNativeContact(trimmed)) {
             // Relay can stale-mark Wi‑Fi peers; confirm Wi‑Fi fingerprint before blocking RF.
             if (bridge.isWifiNativeContact(trimmed) || isDirectLanWifiPeer(contact, bridge)) {
+                // Merged keeper: opaque Wi‑Fi UID + RF registry — still RF-reachable here.
+                if (bridge.isBtechContactUid(trimmed)) {
+                    return false;
+                }
                 return true;
             }
             return false;
@@ -164,7 +180,13 @@ public final class ContactReachability {
         if (!isLocalWifiAvailable() && resolveRoutableNetworkEndpoint(contact) != null) {
             return true;
         }
-        return isOpaqueWifiDeviceUid(trimmed);
+        if (isOpaqueWifiDeviceUid(trimmed)) {
+            if (bridge.isBtechContactUid(trimmed)) {
+                return false;
+            }
+            return true;
+        }
+        return false;
     }
 
     public static boolean isLocalWifiAvailable() {

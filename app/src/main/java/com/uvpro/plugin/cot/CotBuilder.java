@@ -1123,6 +1123,9 @@ public class CotBuilder {
             if (self.equalsIgnoreCase(trimmed)) {
                 return true;
             }
+            if (com.uvpro.plugin.util.CallsignUtil.isSameCallsignAlias(self, trimmed)) {
+                return true;
+            }
             if (uidResolver != null) {
                 String resolvedDest = uidResolver.apply(trimmed);
                 if (resolvedDest != null && self.equalsIgnoreCase(resolvedDest.trim())) {

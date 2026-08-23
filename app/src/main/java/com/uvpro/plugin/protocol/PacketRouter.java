@@ -275,6 +275,9 @@ public class PacketRouter {
                     cotBridge.markRfNativeContact(uid);
                     cotBridge.markRfHeardCallsign(normalized);
                     cotBridge.registerBtechContactId(normalized, uid);
+                    if (!syntheticUid.equalsIgnoreCase(uid)) {
+                        cotBridge.registerBtechContactUidAlias(syntheticUid, uid);
+                    }
                     String radioTrunc = CallsignUtil.toRadioCallsign(normalized);
                     if (radioTrunc != null && !radioTrunc.isEmpty()
                             && !radioTrunc.equalsIgnoreCase(normalized)) {
@@ -703,7 +706,7 @@ public class PacketRouter {
                     ic.setMapItem(item);
                     ic.dispatchChangeEvent();
                     removeDuplicateSyntheticContact(contacts, syntheticUid, ic.getUID());
-                    ChatBridge.collapseDuplicateContactsForCallsign(normalized, ic.getUID());
+                    ChatBridge.collapseDuplicateContactsForCallsign(normalized, null);
                     return;
                 }
                 if (attempt < 12) {
@@ -713,7 +716,7 @@ public class PacketRouter {
                 }
                 ic.dispatchChangeEvent();
                 removeDuplicateSyntheticContact(contacts, syntheticUid, ic.getUID());
-                ChatBridge.collapseDuplicateContactsForCallsign(normalized, ic.getUID());
+                ChatBridge.collapseDuplicateContactsForCallsign(normalized, null);
                 return;
             }
 
@@ -723,21 +726,24 @@ public class PacketRouter {
                 return;
             }
 
-            IndividualContact c = new IndividualContact(
-                    normalized,
-                    uid,
-                    item instanceof MapItem ? item : null,
-                    buildNativeConnectorSeed(normalized));
-
-            contacts.addContact(c);
-            ChatBridge.preferNativeContactAction(c);
-            if (item != null) {
-                item.setMetaBoolean("sendable", true);
-                item.setMetaString("endpoint", ChatBridge.ACTION_PLUGIN_CONTACT_GEOCHAT_SEND);
-                com.uvpro.plugin.contacts.ContactRadialMenuUtil
-                        .applyPingCapableRadialMenu(item, c);
+            String ensuredUid = ChatBridge.ensurePluginChatContact(normalized, uid);
+            if (ensuredUid == null || ensuredUid.trim().isEmpty()) {
+                ensuredUid = uid;
             }
-            ChatBridge.collapseDuplicateContactsForCallsign(normalized, uid);
+            Contact ensured = contacts.getContactByUuid(ensuredUid.trim());
+            if (ensured instanceof IndividualContact) {
+                IndividualContact ic = (IndividualContact) ensured;
+                ChatBridge.preferNativeContactAction(ic);
+                if (item != null) {
+                    item.setMetaBoolean("sendable", true);
+                    item.setMetaString("endpoint", ChatBridge.ACTION_PLUGIN_CONTACT_GEOCHAT_SEND);
+                    com.uvpro.plugin.contacts.ContactRadialMenuUtil
+                            .applyPingCapableRadialMenu(item, ic);
+                    ic.setMapItem(item);
+                }
+                removeDuplicateSyntheticContact(contacts, syntheticUid, ic.getUID());
+                ChatBridge.collapseDuplicateContactsForCallsign(normalized, null);
+            }
         } catch (Exception e) {
             Log.e(TAG, "linkRadioIndividualContactToMapMarker failed uid=" + uid, e);
         }
